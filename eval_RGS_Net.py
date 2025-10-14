@@ -2,7 +2,7 @@ import os
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 from dataset import LandsatFireDataset
-from models.RGS_Net import RGSNet
+from models.ReG_UNet import ReGUNet
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +18,7 @@ print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'
 
 DATA_ROOT = "data/full"
 ALGORITHM = "voting"  # 可选项: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
-SAVE_DIR = "output/RGS_Net/voting_202510101118"  # 训练文件夹
+SAVE_DIR = "output/ReG_UNet/voting_202510101118"  # 训练文件夹
 TH_FIRE  = 0.5  # 火点阈值
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 USE_FUSION = True  # 是否使用融合概率进行评估
@@ -52,7 +52,7 @@ model_name = "model_best"
 param_path = os.path.join(SAVE_DIR, "weights", f"{model_name}.pth")
 print(f"├─ 参数路径: {param_path}")
 
-model = RGSNet(n_channels=3, n_filters=32, tau=TAU)
+model = ReGUNet(n_channels=3, n_filters=32, tau=TAU)
 print(f"├─ 网络架构: {model.__class__.__name__}")
 try:
     state_dict = torch.load(param_path)

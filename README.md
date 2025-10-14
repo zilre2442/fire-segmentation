@@ -1,12 +1,12 @@
-# RGS-Net：基于重建误差引导的火点分割（PyTorch）
+# ReG-UNet：重建门控 U-Net 的火点分割（PyTorch）
 
-本项目实现了一个共享编码器的双分支 U-Net：
+本项目实现了一个共享编码器的双分支 U-Net（Reconstruction-Gated U-Net）：
 - 分割分支输出火点概率图；
 - 重建分支复原输入影像，利用重建误差作为“异常线索”门控分割概率，从而提升鲁棒性与精度。
 
 ## 特色
 - 共享编码器 + 双解码器（分割 / 重建）
-- 误差引导融合：`fused_probs = sigmoid(|x-\hat{x}|/tau) × seg_probs`
+- 重建门控融合：`fused_probs = sigmoid(|x-\hat{x}|/tau) × seg_probs`
 - 重建损失仅在背景上计算，避免强行还原火点像素
 - torchrun 启动的分布式训练（DDP）
 - 评估仅保留微平均 Precision/Recall/F1（更干净、可复现）
@@ -20,13 +20,13 @@
 │     ├─ <ALGO>_val.csv
 │     └─ <ALGO>_test.csv             # 每行：(image_path, mask_path)
 ├─ models/
-│  ├─ RGS_Net.py                      # 模型定义（类名：RGSNet）
+│  ├─ ReG_UNet.py                     # 模型定义（类名：ReGUNet）
 │  └─ baseline.py                     # 基线 UNet（参考）
 ├─ dataset.py                         # LandsatFireDataset（raster 读取）
 ├─ loss.py                            # FocalTverskyLoss、MaskedL1Loss 等
 ├─ utils.py                           # analyze_model_performance、adaptive_crop
-├─ train_RGS_Net.py                   # 分布式训练入口
-├─ eval_RGS_Net.py                    # 评估（仅微平均指标）
+├─ train_RGS_Net.py                   # 分布式训练入口（使用 ReGUNet）
+├─ eval_RGS_Net.py                    # 评估（仅微平均指标，使用 ReGUNet）
 └─ output/                            # 训练输出
 ```
 
@@ -54,8 +54,8 @@ pip install rasterio numpy matplotlib tqdm
 可选：若使用性能分析（CUDA profiler），请确保 CUDA 环境可用。
 
 ## 模型概览
-文件：`models/RGS_Net.py`
-- 类：`RGSNet`
+文件：`models/ReG_UNet.py`
+- 类：`ReGUNet`
 - 前向输出（结构体）：
   - `seg_logits`：分割分支 logits
   - `seg_probs`：分割概率
@@ -90,7 +90,7 @@ fused = seg_probs * weighting
 torchrun --nproc_per_node=4 train_RGS_Net.py
 ```
 输出（仅 rank 0 写入）：
-- `output/RGS_Net/<ALGO>_<时间戳>/`
+- `output/ReG_UNet/<ALGO>_<时间戳>/`
   - `model_best.pth`、`model_final.pth`、按间隔保存的 checkpoints
   - `hyperparameters.txt`（记录模型、优化器，以及“分割/重建损失”的配置）
   - `logs/`（各进程日志）
@@ -102,7 +102,7 @@ torchrun --nproc_per_node=4 train_RGS_Net.py
 
 ## 评估
 脚本：`eval_RGS_Net.py`
-- 设置 `SAVE_DIR` 指向训练输出目录（如 `output/RGS_Net/voting_YYYYMMDDHHMM`）。
+- 设置 `SAVE_DIR` 指向训练输出目录（如 `output/ReG_UNet/voting_YYYYMMDDHHMM`）。
 - 是否使用融合：`USE_FUSION=True/False`；温度参数 `TAU` 可调。
 
 运行：
@@ -120,13 +120,13 @@ python eval_RGS_Net.py
 ## 快速自检
 使用 `utils.py` 的工具快速查看模型推理与显存：
 ```python
-from models.RGS_Net import RGSNet
+from models.ReG_UNet import ReGUNet
 from utils import analyze_model_performance
 
 analyze_model_performance(
-    model=RGSNet(n_channels=3, n_filters=32),
-    input_shape=(1, 3, 256, 256),
-    device='cpu'
+  model=ReGUNet(n_channels=3, n_filters=32),
+  input_shape=(1, 3, 256, 256),
+  device='cpu'
 )
 ```
 
