@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from dataset import LandsatFireDataset
-from models.ReG_UNet import ReGUNet
+from models.RGS_Net import RGSNet
 from utils import adaptive_crop
 from loss import FocalTverskyLoss, MaskedL1Loss, get_criterion_info
 import logging
@@ -20,7 +20,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5"
 DATA_ROOT = "data/full"
 ALGORITHM = "voting"  # 可选项: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
 RUN_ID = datetime.now().strftime('%Y%m%d%H%M')
-SAVE_DIR = f"output/ReG_UNet/{ALGORITHM}_{RUN_ID}"
+SAVE_DIR = f"output/RGS_Net/{ALGORITHM}_{RUN_ID}"
 BATCH_SIZE = 128
 NUM_WORKERS = 4
 SHUFFLE_TRAIN = True
@@ -257,7 +257,7 @@ def train(rank, world_size):
         logger.info(f"Rank {rank}/{world_size} using device: {device} (local_rank={local_rank})")
         
         # 创建模型和优化器
-        model = ReGUNet(n_channels=3, n_classes=1, n_filters=32, tau=TAU).to(device)  # n_channels、n_classes、n_filters超参数迁移
+        model = RGSNet(n_channels=3, n_classes=1, n_filters=32,tau=TAU).to(device)  # n_channels、n_classes、n_filters超参数迁移
         ddp_model = DDP(
             model,
             device_ids=[local_rank],
