@@ -14,7 +14,7 @@ from loss import FocalTverskyLoss, MaskedL1Loss, get_criterion_info
 import logging
 
 # GPU设置
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,5"
 
 # 全局超参数配置
 DATA_ROOT = "data/full"
@@ -33,7 +33,7 @@ SAVE_INTERVAL = 10  # 每10个epoch保存一次
 EARLY_STOPPING_PATIENCE = 15    # 允许验证损失未改善的epoch数
 EARLY_STOPPING_MIN_DELTA = 0.001  # 视为改善的最小损失变化阈值
 
-BANDS = (7, 6, 5)  # 使用的波段组合
+BANDS = (7, 6, 2)  # 使用的波段组合
 RECON_LOSS_WEIGHT = 1.0  # 重建损失权重 
 TAU = 1.0  # 重建分支融合系数（越大重建分支影像越小，对分割概率的调整越温和）
 
@@ -194,8 +194,10 @@ def save_hyperparameters(
         f.write(f"保存间隔: 每 {SAVE_INTERVAL} 个epoch保存一次\n")
         f.write("早停设置:\n")
         f.write(f"  - 耐心值(Patience): {EARLY_STOPPING_PATIENCE}\n")
-        f.write(f"  - 最小改善(Min Delta): {EARLY_STOPPING_MIN_DELTA}\n\n")
-        f.write(f"重建损失权重: {RECON_LOSS_WEIGHT}\n\n")
+        f.write(f"  - 最小改善(Min Delta): {EARLY_STOPPING_MIN_DELTA}\n")
+        f.write(f"重建损失权重: {RECON_LOSS_WEIGHT}\n")
+        f.write(f"TAU (重建分支融合系数): {TAU}\n\n")
+        f.write(f"Bands used: {BANDS}\n\n")
         
         # 优化器信息
         f.write("======= 优化器配置 =======\n")
@@ -569,8 +571,8 @@ if __name__ == "__main__":
     train(rank, world_size)
 
 # 命令行相关指令
-# torchrun --nproc_per_node=4 train.py或者python -m torch.distributed.run --nproc_per_node=4 train_.py
-# nohup torchrun --nproc_per_node=5 CaraUnet_2_train.py > CaraUnet_2_train_$(date +%Y%m%d%H%M).log 2>&1 &
+# torchrun --nproc_per_node=3 train.py或者python -m torch.distributed.run --nproc_per_node=3 train_.py
+# nohup torchrun --nproc_per_node=3 CaraUnet_2_train.py > CaraUnet_2_train_$(date +%Y%m%d%H%M).log 2>&1 &
 # disown  # 立即执行：将进程从Shell作业列表中剥离
 # nvidia-smi  # 查看GPU状态
 # ps aux | grep CaraUnet_2_train.py  # 查看进程数
