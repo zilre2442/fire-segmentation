@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data/output
+output/
+*.log
+*.tmp
+*.bak
+
+# Model weights
+*.pth
+*.pt
+*.h5
+
+# Environment
+.env
+.venv
+venv/
+ENV/
+
+# Large files (optional, for LFS)
+# *.tif
+# *.zip

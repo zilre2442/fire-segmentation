@@ -1,0 +1,8 @@
+# ReG-UNet 项目依赖
+# 推荐使用 Python 3.8 及以上
+
+torch>=1.10
+numpy
+rasterio
+matplotlib
+tqdm
