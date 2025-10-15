@@ -19,12 +19,12 @@ print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'
 DATA_ROOT = "data/full"
 ALGORITHM = "voting"  # 可选项: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
 SAVE_DIR = "output/RGS_Net/voting_202510101118"  # 训练文件夹
-TH_FIRE  = 0.5  # 火点阈值
+TH_FIRE  = 0.25  # 火点阈值
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 USE_FUSION = True  # 是否使用融合概率进行评估
-
 TAU = 1  # 融合权重参数, 仅在USE_FUSION=True时有效
-
+BANDS = (7, 6, 2)  # 使用的波段组合
 
 # 测试数据准备阶段 
 print("\n[阶段 1/4] 准备测试数据")
@@ -32,7 +32,7 @@ test_data_csv = os.path.join(DATA_ROOT, f"{ALGORITHM}_test.csv")
 print(f"├─ 算法标签: {ALGORITHM}")
 print(f"├─ 测试集CSV: {test_data_csv}")
 
-test_dataset = LandsatFireDataset(test_data_csv, bands=(7, 6, 5))
+test_dataset = LandsatFireDataset(test_data_csv, bands=BANDS)
 print(f"├─ 测试集样本数: {len(test_dataset)}")
 
 test_loader = DataLoader(
