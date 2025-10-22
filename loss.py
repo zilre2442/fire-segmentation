@@ -189,7 +189,6 @@ def get_criterion_info(criterion):
     
     return info.strip()
 
-
 class SpatialFocalLoss(nn.Module):
     """带空间连通域加权的 Focal Loss。
 
@@ -343,7 +342,6 @@ class SpatialFocalLoss(nn.Module):
                 if 0 <= ny < h and 0 <= nx < w and binary_mask[ny, nx] and labels[ny, nx] == 0:
                     labels[ny, nx] = label_id
                     queue.append((ny, nx))
-
 
 class MaskedL1Loss(nn.Module):
     """针对遥感火点分割任务的掩膜 L1 损失。

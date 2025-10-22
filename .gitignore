@@ -19,11 +19,16 @@ models/__pycache__
 .DS_Store
 Thumbs.db
 
-# Data/output
-output/
+# Data/output (keep non-weight artifacts, ignore weight files only)
 *.log
 *.tmp
 *.bak
+
+# Ignore model weights specifically under output/
+output/**/weights/
+output/**/*.pth
+output/**/*.pt
+output/**/*.h5
 
 # Model weights
 *.pth
@@ -39,3 +44,7 @@ ENV/
 # Large files (optional, for LFS)
 # *.tif
 # *.zip
+.gitignore
+
+# Ignore PlotNeuralNet visuals (LaTeX / build artifacts)
+models/visual/PlotNeuralNet/
