@@ -1,29 +1,8 @@
-"""RGS-Net: Reconstruction-Guided Segmentation Network (shared encoder baseline).
+"""RGS-Net V1 (renamed from Unet_2): shared-encoder dual-decoder U-Net.
 
-本模块提供一个传统 U-Net 编码器，衍生出分割与重建两个解码器分支：
-
-* 分割分支输出火点概率图 :math:`R_{seg}`。
-* 重建分支尝试复原输入影像，得到 :math:`\hat{x}`，并据此计算
-  重建误差 :math:`R_{rec} = |x - \hat{x}|`。
-
-重建误差能够帮助过滤编码器中对火点 (异常) 过度响应的噪音特征；
-将 :math:`R_{seg}` 与 :math:`R_{rec}` 融合，能够为推理阶段提供互补的异常证据。
-
-核心特性（RGS-Net）
------------
-* U-Net 风格共享编码器，提供多尺度跳跃特征。
-* 双解码器共享跳跃连接，但各自具备独立的上采样权重。
-* 默认输出包含 logits、分割概率、重建结果、重建误差以及融合后的概率。
-* `compute_losses` 支持从外部注入分割与重建损失（可直接使用 ``loss.py`` 中的实现），
-  同时在重建损失中按火点掩码屏蔽前景区域。
-
-使用示例
-~~~~~~~~
->>> model = RGSNet(n_channels=3, n_classes=1)
->>> images = torch.randn(2, 3, 256, 256)
->>> outputs = model(images)
->>> outputs.seg_probs.shape
-torch.Size([2, 1, 256, 256])"""
+此版本将原 Unet_2 架构重命名为 RGS_Net_V1，并移除旧版 RGS_Net_V1 实现。
+提供分割 logits/prob、重建影像、重建误差与融合概率输出，并支持训练期的损失计算。
+"""
 
 from __future__ import annotations
 
@@ -37,14 +16,7 @@ import torch.nn.functional as F
 Tensor = torch.Tensor
 
 
-# ---------------------------------------------------------------------------
-# 基础卷积与模块
-# ---------------------------------------------------------------------------
-
-
 class DoubleConv(nn.Module):
-    """经典 U-Net 中的双卷积单元."""
-
     def __init__(self, in_channels: int, out_channels: int, batchnorm: bool = True) -> None:
         super().__init__()
         layers: List[nn.Module] = [
@@ -57,25 +29,21 @@ class DoubleConv(nn.Module):
         ]
         self.block = nn.Sequential(*layers)
 
-    def forward(self, x: Tensor) -> Tensor:  # noqa: D401
+    def forward(self, x: Tensor) -> Tensor:
         return self.block(x)
 
 
 class Down(nn.Module):
-    """下采样模块: MaxPool + DoubleConv."""
-
     def __init__(self, in_channels: int, out_channels: int, batchnorm: bool) -> None:
         super().__init__()
         self.pool = nn.MaxPool2d(2)
         self.conv = DoubleConv(in_channels, out_channels, batchnorm=batchnorm)
 
-    def forward(self, x: Tensor) -> Tensor:  # noqa: D401
+    def forward(self, x: Tensor) -> Tensor:
         return self.conv(self.pool(x))
 
 
 class Up(nn.Module):
-    """上采样模块: 转置卷积提升尺度, 与 skip 特征拼接后再做 DoubleConv."""
-
     def __init__(
         self,
         in_channels: int,
@@ -94,9 +62,9 @@ class Up(nn.Module):
             self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
         self.conv = DoubleConv(out_channels + skip_channels, out_channels, batchnorm=batchnorm)
 
-    def forward(self, x: Tensor, skip: Tensor) -> Tensor:  # noqa: D401
+    def forward(self, x: Tensor, skip: Tensor) -> Tensor:
         x = self.up(x)
-        if x.shape[-2:] != skip.shape[-2:]:  # 对齐空间尺寸
+        if x.shape[-2:] != skip.shape[-2:]:
             diff_y = skip.size(-2) - x.size(-2)
             diff_x = skip.size(-1) - x.size(-1)
             x = F.pad(x, [diff_x // 2, diff_x - diff_x // 2, diff_y // 2, diff_y - diff_y // 2])
@@ -105,24 +73,15 @@ class Up(nn.Module):
 
 
 class OutConv(nn.Module):
-    """末端 1x1 卷积."""
-
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
-    def forward(self, x: Tensor) -> Tensor:  # noqa: D401
+    def forward(self, x: Tensor) -> Tensor:
         return self.conv(x)
 
 
-# ---------------------------------------------------------------------------
-# 结构定义
-# ---------------------------------------------------------------------------
-
-
 class SharedEncoderUNet(nn.Module):
-    """U-Net 风格编码器, 返回每层特征 (包含输入端)."""
-
     def __init__(
         self,
         in_channels: int,
@@ -143,7 +102,7 @@ class SharedEncoderUNet(nn.Module):
 
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
 
-    def forward(self, x: Tensor) -> List[Tensor]:  # noqa: D401
+    def forward(self, x: Tensor) -> List[Tensor]:
         features: List[Tensor] = []
         out = self.stem(x)
         features.append(out)
@@ -154,8 +113,6 @@ class SharedEncoderUNet(nn.Module):
 
 
 class SegmentationDecoderUNet(nn.Module):
-    """分割分支解码器."""
-
     def __init__(
         self,
         feature_channels: List[int],
@@ -175,7 +132,7 @@ class SegmentationDecoderUNet(nn.Module):
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
         self.out_conv = OutConv(feature_channels[0], out_channels)
 
-    def forward(self, features: List[Tensor]) -> Tensor:  # noqa: D401
+    def forward(self, features: List[Tensor]) -> Tensor:
         x = features[-1]
         for idx, block in enumerate(self.up_blocks):
             skip = features[-2 - idx]
@@ -184,8 +141,6 @@ class SegmentationDecoderUNet(nn.Module):
 
 
 class ReconstructionDecoderUNet(nn.Module):
-    """重建分支解码器, 结构与分割分支类似但输出通道等于输入通道."""
-
     def __init__(
         self,
         feature_channels: List[int],
@@ -205,7 +160,7 @@ class ReconstructionDecoderUNet(nn.Module):
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
         self.out_conv = OutConv(feature_channels[0], out_channels)
 
-    def forward(self, features: List[Tensor]) -> Tensor:  # noqa: D401
+    def forward(self, features: List[Tensor]) -> Tensor:
         x = features[-1]
         for idx, block in enumerate(self.up_blocks):
             skip = features[-2 - idx]
@@ -215,8 +170,6 @@ class ReconstructionDecoderUNet(nn.Module):
 
 @dataclass
 class ForwardOutput:
-    """模型前向输出的封装."""
-
     seg_logits: Tensor
     seg_probs: Tensor
     reconstruction: Tensor
@@ -224,9 +177,7 @@ class ForwardOutput:
     fused_probs: Tensor
 
 
-class RGSNet(nn.Module):
-    """RGS-Net: 共享编码器 + 分割/重建双分支，使用重建误差引导分割融合的基线网络."""
-
+class RGSNetV1(nn.Module):
     def __init__(
         self,
         n_channels: int = 3,
@@ -267,9 +218,6 @@ class RGSNet(nn.Module):
             use_bilinear=use_bilinear,
         )
 
-    # ------------------------------------------------------------------
-    # 前向推理
-    # ------------------------------------------------------------------
     def forward(
         self,
         x: Tensor,
@@ -277,20 +225,14 @@ class RGSNet(nn.Module):
         tau: Optional[float] = None,
         fuse_outputs: bool = True,
     ) -> ForwardOutput:
-        """执行前向推理并返回分割概率、重建结果与融合输出."""
-
         features = self.encoder(x)
         seg_logits = self.seg_decoder(features)
         reconstruction = self.rec_decoder(features)
 
         seg_probs = self._apply_activation(seg_logits)
-        recon_error = torch.abs(x - reconstruction)  # 如果重建分支能够很好地还原非火点区域, 则重建误差反映的异常强度代表火点区域的置信度
+        recon_error = torch.abs(x - reconstruction)
 
-        if fuse_outputs:
-            fused = self._fuse(seg_probs, recon_error, tau=tau)
-        else:
-            fused = seg_probs
-
+        fused = self._fuse(seg_probs, recon_error, tau=tau) if fuse_outputs else seg_probs
         return ForwardOutput(
             seg_logits=seg_logits,
             seg_probs=seg_probs,
@@ -299,9 +241,6 @@ class RGSNet(nn.Module):
             fused_probs=fused,
         )
 
-    # ------------------------------------------------------------------
-    # 损失计算
-    # ------------------------------------------------------------------
     def compute_losses(
         self,
         *,
@@ -314,22 +253,8 @@ class RGSNet(nn.Module):
         fire_mask: Optional[Tensor] = None,
         reduction: str = "mean",
     ) -> Dict[str, Tensor]:
-        """计算分割与重建损失。
-
-        Args:
-            seg_logits: 分割分支输出 (logits)。
-            reconstruction: 重建分支输出 :math:`\hat{x}`。
-            targets_seg: 分割标签, 形状与 ``seg_logits`` 匹配。
-            inputs: 原始输入影像 :math:`x`。
-            seg_loss_fn: 分割损失函数 (可直接传入 ``loss.py`` 中的类实例)。
-            recon_loss_fn: 重建损失函数。如果为 ``None``，默认使用掩码 L1。
-            fire_mask: 可选火点掩膜, 形状 ``[B,1,H,W]`` 或 ``[B,H,W]``。
-            reduction: 当使用默认 L1 时的归约方式 (``mean`` / ``sum``)。
-        """
-
         seg_loss = seg_loss_fn(seg_logits, targets_seg)
 
-        # ---- 构建背景掩码 ----
         if fire_mask is None:
             fire_mask = self._infer_fire_mask(targets_seg)
         fire_mask = fire_mask.float()
@@ -339,7 +264,6 @@ class RGSNet(nn.Module):
         if background_mask.shape[1] != inputs.shape[1]:
             background_mask = background_mask.expand(-1, inputs.shape[1], -1, -1)
 
-        # ---- 计算重建损失 ----
         if recon_loss_fn is None:
             diff = torch.abs((reconstruction - inputs) * background_mask)
             if reduction == "sum":
@@ -351,15 +275,8 @@ class RGSNet(nn.Module):
             rec_loss = recon_loss_fn(reconstruction * background_mask, inputs * background_mask)
 
         total_loss = seg_loss + rec_loss
-        return {
-            "loss": total_loss,
-            "seg_loss": seg_loss,
-            "rec_loss": rec_loss,
-        }
+        return {"loss": total_loss, "seg_loss": seg_loss, "rec_loss": rec_loss}
 
-    # ------------------------------------------------------------------
-    # 内部工具
-    # ------------------------------------------------------------------
     def _apply_activation(self, seg_logits: Tensor) -> Tensor:
         if self.n_classes == 1:
             return torch.sigmoid(seg_logits)
@@ -369,7 +286,6 @@ class RGSNet(nn.Module):
         tau = self.tau if tau is None else tau
         if tau <= 0:
             raise ValueError("温度参数 tau 必须为正数")
-        # 取重建误差的均值作为异常强度, 经 Sigmoid 压缩到 [0,1]
         recon_scalar = recon_error.mean(dim=1, keepdim=True)
         weighting = torch.sigmoid(recon_scalar / tau)
         return seg_probs * weighting
@@ -381,24 +297,47 @@ class RGSNet(nn.Module):
         return torch.argmax(targets_seg, dim=1, keepdim=True).float()
 
 
-# 对外导出
-__all__ = ["RGSNet", "ForwardOutput"]
+__all__ = ["RGSNetV1", "ForwardOutput"]
+
+
+def analyze_v1_performance(
+    *,
+    input_shape: tuple = (1, 3, 256, 256),
+    device: str = "cpu",
+    gpu_id: int = 0,
+    n_channels: int = 3,
+    n_classes: int = 1,
+    n_filters: int = 32,
+    depth: int = 5,
+    batchnorm: bool = True,
+    dropout: float = 0.1,
+    use_bilinear: bool = False,
+    tau: float = 1.0,
+) -> None:
+    """Convenience helper to profile RGSNetV1 via utils.analyze_model_performance.
+
+    This prints performance stats (params, FLOPs, time, memory). It does not return values.
+    """
+    # Import locally to avoid circular imports at module import time
+    from utils import analyze_model_performance
+
+    model = RGSNetV1(
+        n_channels=n_channels,
+        n_classes=n_classes,
+        n_filters=n_filters,
+        depth=depth,
+        batchnorm=batchnorm,
+        dropout=dropout,
+        use_bilinear=use_bilinear,
+        tau=tau,
+    )
+    analyze_model_performance(model=model, input_shape=input_shape, device=device, gpu_id=gpu_id)
 
 
 if __name__ == "__main__":
-    from utils import analyze_model_performance
+    # Example runs: CPU and (if available) GPU profiling
+    analyze_v1_performance(input_shape=(1, 3, 256, 256), device="cpu")
 
-    # 示例1：分析CPU性能
-    analyze_model_performance(
-        model=RGSNet(n_channels=3, n_filters=32),
-        input_shape=(1, 3, 256, 256),
-        device='cpu'
-    )
-    
-    # 示例2：分析指定GPU（如GPU 1）的性能
-    analyze_model_performance(
-        model=RGSNet(n_channels=3, n_filters=32),
-        input_shape=(64, 3, 256, 256),
-        device='cuda',
-        gpu_id=0
-    )
+    if torch.cuda.is_available():
+        # Use a moderate batch for quick GPU profiling; adjust if needed
+        analyze_v1_performance(input_shape=(8, 3, 256, 256), device="cuda", gpu_id=0)
