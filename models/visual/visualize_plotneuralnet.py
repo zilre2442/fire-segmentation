@@ -157,19 +157,33 @@ def build_arch_baseline(project_path: str) -> List[str]:
     return arch
 
 
-def build_arch_dual_decoder(caption_left: str, caption_right: str, project_path: str) -> List[str]:
-    """构建共享编码器 + 双解码器结构（用于 RGS_Net_V1 及变体）。"""
+def build_arch_dual_decoder(caption_left: str, caption_right: str, project_path: str, show_err_fusion: bool = False) -> List[str]:
+    """构建共享编码器 + 双解码器结构（用于 RGS_Net_V1 及变体）。
+
+    参数:
+    - caption_left: 分割分支输出标题
+    - caption_right: 重建分支输出标题
+    - project_path: PlotNeuralNet 的相对路径（用于 header 包含）
+    - show_err_fusion: 若为 True，则在各解码阶段可视化“重建误差权重与分割特征的融合（乘性 gating）”，用于 V2。
+    """
     tikz = _tikzeng()
     blocks = _blocks()
 
     arch: List[str] = []
     arch += _common_preamble(project_path)
-    # 为重建分支定义单独的连线样式与箭头（绿色），便于与分割分支区分
+    # 为重建分支定义单独的连线样式与箭头（绿色），并将跨越连接从“下方”改为“上方”路由。
     arch += [
-        "% custom style for reconstruction skips (green, routed from below)\n"
+        "% custom style for reconstruction skips (green, routed from above)\n"
         "\\tikzstyle{recconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:green,6;blue,1;black,3},opacity=0.7]\n"
         "\\newcommand{\\recopymidarrow}{\\tikz \\draw[-Stealth,line width=0.8mm,draw={rgb:green,6;blue,1;black,3}] (-0.3,0) -- ++(0.3,0);} \n"
     ]
+    if show_err_fusion:
+        # 误差权重融合（V2）可视化的虚线与箭头样式（橙色）
+        arch += [
+            "% error-weight fusion (orange dashed) for V2\n"
+            "\\tikzstyle{errconnection}=[ultra thick,dashed,every node/.style={sloped,allow upside down},draw={rgb:red,5;yellow,5;black,2},opacity=0.8]\n"
+            "\\newcommand{\\errmidarrow}{\\tikz \\draw[-Stealth,line width=0.6mm,draw={rgb:red,5;yellow,5;black,2}] (-0.25,0) -- ++(0.25,0);} \n"
+        ]
 
     # 输入节点（示意）
     arch += [
@@ -224,42 +238,67 @@ def build_arch_dual_decoder(caption_left: str, caption_right: str, project_path:
     arch += [tikz.to_connection("rec_end_b9", "Recon")]
 
     # 为重建分支添加与编码器对应的跳跃连接（encoder -> reconstruction decoder），
-    # 使用“横平竖直”的风格且从下方连接（绿色样式与分割分支区分）
+    # 使用“横平竖直”的风格且从上方连接（绿色样式与分割分支区分）
     # e4->rec_b6, e3->rec_b7, e2->rec_b8, e1->rec_b9
     arch += [
     r"""
-\path (ccr_b4-southwest) -- (ccr_b4-southeast) coordinate[pos=1.25] (ccr_b4-bottom) ;
-\path (ccr_res_rec_b6-north)  -- (ccr_res_rec_b6-south)  coordinate[pos=1.25] (ccr_res_rec_b6-bottom) ;
-\draw [recconnection]  (ccr_b4-southeast)
--- node {\recopymidarrow}(ccr_b4-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b6-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b6-south);
+\path (ccr_b4-northwest) -- (ccr_b4-northeast) coordinate[pos=1.25] (ccr_b4-top) ;
+\path (ccr_res_rec_b6-north)  -- (ccr_res_rec_b6-south)  coordinate[pos=-0.25] (ccr_res_rec_b6-top) ;
+\draw [recconnection]  (ccr_b4-northeast)
+-- node {\recopymidarrow}(ccr_b4-top)
+-- node {\recopymidarrow}(ccr_res_rec_b6-top)
+-- node {\recopymidarrow} (ccr_res_rec_b6-north);
 """,
     r"""
-\path (ccr_b3-southwest) -- (ccr_b3-southeast) coordinate[pos=1.25] (ccr_b3-bottom) ;
-\path (ccr_res_rec_b7-north)  -- (ccr_res_rec_b7-south)  coordinate[pos=1.25] (ccr_res_rec_b7-bottom) ;
-\draw [recconnection]  (ccr_b3-southeast)
--- node {\recopymidarrow}(ccr_b3-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b7-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b7-south);
+\path (ccr_b3-northwest) -- (ccr_b3-northeast) coordinate[pos=1.25] (ccr_b3-top) ;
+\path (ccr_res_rec_b7-north)  -- (ccr_res_rec_b7-south)  coordinate[pos=-0.25] (ccr_res_rec_b7-top) ;
+\draw [recconnection]  (ccr_b3-northeast)
+-- node {\recopymidarrow}(ccr_b3-top)
+-- node {\recopymidarrow}(ccr_res_rec_b7-top)
+-- node {\recopymidarrow} (ccr_res_rec_b7-north);
 """,
     r"""
-\path (ccr_b2-southwest) -- (ccr_b2-southeast) coordinate[pos=1.25] (ccr_b2-bottom) ;
-\path (ccr_res_rec_b8-north)  -- (ccr_res_rec_b8-south)  coordinate[pos=1.25] (ccr_res_rec_b8-bottom) ;
-\draw [recconnection]  (ccr_b2-southeast)
--- node {\recopymidarrow}(ccr_b2-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b8-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b8-south);
+\path (ccr_b2-northwest) -- (ccr_b2-northeast) coordinate[pos=1.25] (ccr_b2-top) ;
+\path (ccr_res_rec_b8-north)  -- (ccr_res_rec_b8-south)  coordinate[pos=-0.25] (ccr_res_rec_b8-top) ;
+\draw [recconnection]  (ccr_b2-northeast)
+-- node {\recopymidarrow}(ccr_b2-top)
+-- node {\recopymidarrow}(ccr_res_rec_b8-top)
+-- node {\recopymidarrow} (ccr_res_rec_b8-north);
 """,
     r"""
-\path (ccr_b1-southwest) -- (ccr_b1-southeast) coordinate[pos=1.25] (ccr_b1-bottom) ;
-\path (ccr_res_rec_b9-north)  -- (ccr_res_rec_b9-south)  coordinate[pos=1.25] (ccr_res_rec_b9-bottom) ;
-\draw [recconnection]  (ccr_b1-southeast)
--- node {\recopymidarrow}(ccr_b1-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b9-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b9-south);
+\path (ccr_b1-northwest) -- (ccr_b1-northeast) coordinate[pos=1.25] (ccr_b1-top) ;
+\path (ccr_res_rec_b9-north)  -- (ccr_res_rec_b9-south)  coordinate[pos=-0.25] (ccr_res_rec_b9-top) ;
+\draw [recconnection]  (ccr_b1-northeast)
+-- node {\recopymidarrow}(ccr_b1-top)
+-- node {\recopymidarrow}(ccr_res_rec_b9-top)
+-- node {\recopymidarrow} (ccr_res_rec_b9-north);
 """,
     ]
+
+    # 若需要，添加 V2 的“误差权重融合”可视化（以橙色虚线从重建分支阶段输出到分割分支对应阶段的融合处）。
+    if show_err_fusion:
+        arch += [
+        r"""
+% stage b6: rec_end_b6 -> ccr_res_seg_b6 (err weight fusion)
+\draw [errconnection] (rec_end_b6-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b6-north);
+""",
+        r"""
+% stage b7
+\draw [errconnection] (rec_end_b7-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b7-north);
+""",
+        r"""
+% stage b8
+\draw [errconnection] (rec_end_b8-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b8-north);
+""",
+        r"""
+% stage b9
+\draw [errconnection] (rec_end_b9-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b9-north);
+""",
+        ]
 
     arch += _common_finish()
     return arch
@@ -345,11 +384,21 @@ def main() -> None:
         if name == "baseline":
             arch = build_arch_baseline(project_path)
         elif name == "RGS_Net_V2":
-            # V2: 在 Unet_2 的双解码器基础上，强调分割分支为“guided”
-            arch = build_arch_dual_decoder(caption_left="Seg (guided)", caption_right="Recon", project_path=project_path)
+            # V2: 双解码器 + 分割分支受“重建误差权重”引导（在各阶段进行融合）
+            arch = build_arch_dual_decoder(
+                caption_left="Seg (guided)",
+                caption_right="Recon",
+                project_path=project_path,
+                show_err_fusion=True,
+            )
         else:
             # RGS_Net_V1：双解码器结构
-            arch = build_arch_dual_decoder(caption_left="Seg", caption_right="Recon", project_path=project_path)
+            arch = build_arch_dual_decoder(
+                caption_left="Seg",
+                caption_right="Recon",
+                project_path=project_path,
+                show_err_fusion=False,
+            )
 
         write_tex(arch, tex_file)
         print(f"[ok] 写出 TeX: {tex_file}")

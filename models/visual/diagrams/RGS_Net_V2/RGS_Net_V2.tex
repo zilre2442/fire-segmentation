@@ -20,9 +20,12 @@
 \begin{tikzpicture}
 \tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
 \tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
-% custom style for reconstruction skips (green, routed from below)
+% custom style for reconstruction skips (green, routed from above)
 \tikzstyle{recconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:green,6;blue,1;black,3},opacity=0.7]
 \newcommand{\recopymidarrow}{\tikz \draw[-Stealth,line width=0.8mm,draw={rgb:green,6;blue,1;black,3}] (-0.3,0) -- ++(0.3,0);} 
+% error-weight fusion (orange dashed) for V2
+\tikzstyle{errconnection}=[ultra thick,dashed,every node/.style={sloped,allow upside down},draw={rgb:red,5;yellow,5;black,2},opacity=0.8]
+\newcommand{\errmidarrow}{\tikz \draw[-Stealth,line width=0.6mm,draw={rgb:red,5;yellow,5;black,2}] (-0.25,0) -- ++(0.25,0);} 
 
 \pic[shift={(-3,0,0)}] at (0,0,0) 
     {Box={
@@ -782,33 +785,49 @@
 
 \draw [connection]  (rec_end_b9-east)    -- node {\midarrow} (Recon-west);
 
-\path (ccr_b4-southwest) -- (ccr_b4-southeast) coordinate[pos=1.25] (ccr_b4-bottom) ;
-\path (ccr_res_rec_b6-north)  -- (ccr_res_rec_b6-south)  coordinate[pos=1.25] (ccr_res_rec_b6-bottom) ;
-\draw [recconnection]  (ccr_b4-southeast)
--- node {\recopymidarrow}(ccr_b4-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b6-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b6-south);
+\path (ccr_b4-northwest) -- (ccr_b4-northeast) coordinate[pos=1.25] (ccr_b4-top) ;
+\path (ccr_res_rec_b6-north)  -- (ccr_res_rec_b6-south)  coordinate[pos=-0.25] (ccr_res_rec_b6-top) ;
+\draw [recconnection]  (ccr_b4-northeast)
+-- node {\recopymidarrow}(ccr_b4-top)
+-- node {\recopymidarrow}(ccr_res_rec_b6-top)
+-- node {\recopymidarrow} (ccr_res_rec_b6-north);
 
-\path (ccr_b3-southwest) -- (ccr_b3-southeast) coordinate[pos=1.25] (ccr_b3-bottom) ;
-\path (ccr_res_rec_b7-north)  -- (ccr_res_rec_b7-south)  coordinate[pos=1.25] (ccr_res_rec_b7-bottom) ;
-\draw [recconnection]  (ccr_b3-southeast)
--- node {\recopymidarrow}(ccr_b3-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b7-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b7-south);
+\path (ccr_b3-northwest) -- (ccr_b3-northeast) coordinate[pos=1.25] (ccr_b3-top) ;
+\path (ccr_res_rec_b7-north)  -- (ccr_res_rec_b7-south)  coordinate[pos=-0.25] (ccr_res_rec_b7-top) ;
+\draw [recconnection]  (ccr_b3-northeast)
+-- node {\recopymidarrow}(ccr_b3-top)
+-- node {\recopymidarrow}(ccr_res_rec_b7-top)
+-- node {\recopymidarrow} (ccr_res_rec_b7-north);
 
-\path (ccr_b2-southwest) -- (ccr_b2-southeast) coordinate[pos=1.25] (ccr_b2-bottom) ;
-\path (ccr_res_rec_b8-north)  -- (ccr_res_rec_b8-south)  coordinate[pos=1.25] (ccr_res_rec_b8-bottom) ;
-\draw [recconnection]  (ccr_b2-southeast)
--- node {\recopymidarrow}(ccr_b2-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b8-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b8-south);
+\path (ccr_b2-northwest) -- (ccr_b2-northeast) coordinate[pos=1.25] (ccr_b2-top) ;
+\path (ccr_res_rec_b8-north)  -- (ccr_res_rec_b8-south)  coordinate[pos=-0.25] (ccr_res_rec_b8-top) ;
+\draw [recconnection]  (ccr_b2-northeast)
+-- node {\recopymidarrow}(ccr_b2-top)
+-- node {\recopymidarrow}(ccr_res_rec_b8-top)
+-- node {\recopymidarrow} (ccr_res_rec_b8-north);
 
-\path (ccr_b1-southwest) -- (ccr_b1-southeast) coordinate[pos=1.25] (ccr_b1-bottom) ;
-\path (ccr_res_rec_b9-north)  -- (ccr_res_rec_b9-south)  coordinate[pos=1.25] (ccr_res_rec_b9-bottom) ;
-\draw [recconnection]  (ccr_b1-southeast)
--- node {\recopymidarrow}(ccr_b1-bottom)
--- node {\recopymidarrow}(ccr_res_rec_b9-bottom)
--- node {\recopymidarrow} (ccr_res_rec_b9-south);
+\path (ccr_b1-northwest) -- (ccr_b1-northeast) coordinate[pos=1.25] (ccr_b1-top) ;
+\path (ccr_res_rec_b9-north)  -- (ccr_res_rec_b9-south)  coordinate[pos=-0.25] (ccr_res_rec_b9-top) ;
+\draw [recconnection]  (ccr_b1-northeast)
+-- node {\recopymidarrow}(ccr_b1-top)
+-- node {\recopymidarrow}(ccr_res_rec_b9-top)
+-- node {\recopymidarrow} (ccr_res_rec_b9-north);
+
+% stage b6: rec_end_b6 -> ccr_res_seg_b6 (err weight fusion)
+\draw [errconnection] (rec_end_b6-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b6-north);
+
+% stage b7
+\draw [errconnection] (rec_end_b7-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b7-north);
+
+% stage b8
+\draw [errconnection] (rec_end_b8-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b8-north);
+
+% stage b9
+\draw [errconnection] (rec_end_b9-north)
+to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b9-north);
 
 \end{tikzpicture}
 \end{document}
