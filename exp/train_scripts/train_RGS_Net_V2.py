@@ -1,6 +1,7 @@
 import os
+import argparse
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional
 import torch
 import torch.distributed as dist
 import matplotlib.pyplot as plt
@@ -122,7 +123,7 @@ def save_training_plot(train_losses, val_losses, save_dir):
     return plot_path
 
 
-def save_hyperparameters(save_dir, model, optimizer, criterion):
+def save_hyperparameters(save_dir, model, optimizer, criterion, tau: Optional[float] = None):
     params_path = os.path.join(save_dir, 'hyperparameters.txt')
     with open(params_path, 'w') as f:
         f.write("======= 实验配置 (RGS_Net_V2) =======\n")
@@ -151,7 +152,8 @@ def save_hyperparameters(save_dir, model, optimizer, criterion):
         f.write("早停设置:\n")
         f.write(f"  - 耐心值(Patience): {EARLY_STOPPING_PATIENCE}\n")
         f.write(f"  - 最小改善(Min Delta): {EARLY_STOPPING_MIN_DELTA}\n\n")
-        f.write(f"重建损失权重: {RECON_LOSS_WEIGHT}\n\n")
+        f.write(f"重建损失权重: {RECON_LOSS_WEIGHT}\n")
+        f.write(f"融合温度 (tau): {tau if tau is not None else TAU}\n\n")
         f.write("======= 优化器配置 =======\n")
         if optimizer is not None:
             f.write(f"优化器类型: {type(optimizer).__name__}\n")
@@ -168,7 +170,7 @@ def save_hyperparameters(save_dir, model, optimizer, criterion):
     return params_path
 
 
-def train(rank, world_size):
+def train(rank, world_size, tau: Optional[float] = None):
     try:
         # 不在终端输出日志，仅写日志文件
         logger = setup_logging(rank, SAVE_DIR, enable_console=False)
@@ -184,7 +186,8 @@ def train(rank, world_size):
         logger.info(f"Rank {rank}: using device {device}")
 
         # 模型/优化器
-        model = RGSNetV2(n_channels=3, n_classes=1, n_filters=32, tau=TAU).to(device)
+        model_tau = TAU if tau is None else tau
+        model = RGSNetV2(n_channels=3, n_classes=1, n_filters=32, tau=model_tau).to(device)
         ddp_model = DDP(model, device_ids=[local_rank] if torch.cuda.is_available() else None, find_unused_parameters=False)
 
         seg_criterion = FocalTverskyLoss(
@@ -195,6 +198,7 @@ def train(rank, world_size):
             lambda_focal=0.3,##lambda_focal超参数迁移
             lambda_tversky=0.7##lambda_tversky超参数迁移
         ).to(device)  # 确保损失函数在正确设备上
+        # seg_criterion = torch.nn.BCELoss()
         recon_criterion = MaskedL1Loss()
 
         optimizer = torch.optim.AdamW(ddp_model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
@@ -205,7 +209,7 @@ def train(rank, world_size):
 
         if rank == 0:
             os.makedirs(SAVE_DIR, exist_ok=True)
-            param_path = save_hyperparameters(SAVE_DIR, model, optimizer, seg_criterion)
+            param_path = save_hyperparameters(SAVE_DIR, model, optimizer, seg_criterion, tau=model_tau)
             logger.info(f"Hyperparameters saved to: {param_path}")
 
         train_losses = []
@@ -384,11 +388,15 @@ def train(rank, world_size):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tau", type=float, default=None, help="融合温度 tau（覆盖文件中 TAU 的默认值）")
+    args = parser.parse_args()
+
     rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     # 不在终端配置全局日志，避免终端输出；仅写入文件日志
     try:
-        train(rank, world_size)
+        train(rank, world_size, tau=args.tau)
     except Exception:
         try:
             os.makedirs(os.path.join(SAVE_DIR, 'logs'), exist_ok=True)
@@ -401,4 +409,4 @@ if __name__ == "__main__":
             pass
         raise
 
-# CUDA_VISIBLE_DEVICES=3,4,5 torchrun --nproc_per_node=3 exp/train_scripts/train_RGS_Net_V2.py
+# CUDA_VISIBLE_DEVICES=3,4,5 torchrun --nproc_per_node=3 exp/train_scripts/train_RGS_Net_V2.py --tau 1

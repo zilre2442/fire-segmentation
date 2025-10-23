@@ -336,4 +336,4 @@ if is_main_process():
 
 cleanup_distributed()
 
-# CUDA_VISIBLE_DEVICES=0,1,2,3,4 torchrun --nproc_per_node=5 exp/eval_scripts/eval_RGS_Net_V2.py --dist
+# CUDA_VISIBLE_DEVICES=3,4,5 torchrun --nproc_per_node=3 exp/eval_scripts/eval_RGS_Net_V2.py --dist --save-dir output/RGS_Net_V2/voting_202510230911 --tau 1
