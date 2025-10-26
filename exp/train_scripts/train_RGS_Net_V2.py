@@ -191,14 +191,14 @@ def train(rank, world_size, tau: Optional[float] = None):
         ddp_model = DDP(model, device_ids=[local_rank] if torch.cuda.is_available() else None, find_unused_parameters=False)
 
         seg_criterion = FocalTverskyLoss(
-            alpha=0.8,##alpha超参数迁移
+            alpha=0.6,##alpha超参数迁移
             beta=0.4,##beta超参数迁移
             gamma=1.6,##gamma超参数迁移
             focal_alpha=0.85,##focal_alpha超参数迁移
             lambda_focal=0.3,##lambda_focal超参数迁移
             lambda_tversky=0.7##lambda_tversky超参数迁移
         ).to(device)  # 确保损失函数在正确设备上
-        # seg_criterion = torch.nn.BCELoss()
+        # seg_criterion = torch.nn.DiceLoss().to(device)
         recon_criterion = MaskedL1Loss()
 
         optimizer = torch.optim.AdamW(ddp_model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
@@ -409,4 +409,4 @@ if __name__ == "__main__":
             pass
         raise
 
-# CUDA_VISIBLE_DEVICES=3,4,5 torchrun --nproc_per_node=3 exp/train_scripts/train_RGS_Net_V2.py --tau 1
+# CUDA_VISIBLE_DEVICES=3,4,5,6 torchrun --nproc_per_node=4 exp/train_scripts/train_RGS_Net_V2.py --tau 1

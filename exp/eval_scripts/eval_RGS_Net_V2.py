@@ -126,7 +126,7 @@ param_path = os.path.join(SAVE_DIR, f"{model_name}.pth")
 if is_main_process():
     print(f"├─ 参数路径: {param_path}")
 
-model = RGSNetV2(n_channels=3, n_filters=32, tau=TAU)
+model = RGSNetV2(n_channels=3, n_filters=16, tau=TAU)
 if is_main_process():
     print(f"├─ 网络架构: {model.__class__.__name__}")
 try:
