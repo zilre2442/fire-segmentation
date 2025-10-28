@@ -8,8 +8,8 @@ import torch.nn.functional as F
 
 
 class FocalTverskyLoss(nn.Module):
-    def __init__(self, alpha=0.7, beta=0.3, gamma=2.0, focal_alpha=0.8,
-                 lambda_focal=0.6, lambda_tversky=0.4, smooth=1e-6):
+    def __init__(self, alpha=0.6, beta=0.4, gamma=1.6, focal_alpha=0.85,
+                 lambda_focal=0.3, lambda_tversky=0.7, smooth=1e-6):
         """
         组合损失: λ1 * Focal Loss + λ2 * Tversky Loss\n
         此损失函数自带sigmod

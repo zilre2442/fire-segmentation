@@ -23,9 +23,6 @@
 % custom style for reconstruction skips (green, routed from above)
 \tikzstyle{recconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:green,6;blue,1;black,3},opacity=0.7]
 \newcommand{\recopymidarrow}{\tikz \draw[-Stealth,line width=0.8mm,draw={rgb:green,6;blue,1;black,3}] (-0.3,0) -- ++(0.3,0);} 
-% error-weight fusion (orange dashed) for V2
-\tikzstyle{errconnection}=[ultra thick,dashed,every node/.style={sloped,allow upside down},draw={rgb:red,5;yellow,5;black,2},opacity=0.8]
-\newcommand{\errmidarrow}{\tikz \draw[-Stealth,line width=0.6mm,draw={rgb:red,5;yellow,5;black,2}] (-0.25,0) -- ++(0.25,0);} 
 
 \pic[shift={(-3,0,0)}] at (0,0,0) 
     {Box={
@@ -451,7 +448,7 @@
 \pic[shift={(0.75,0,0)}] at (seg_end_b9-east) 
     {Box={
         name=Seg,
-        caption=Seg (guided),
+        caption=Seg mask,
         zlabel=512,
         fill=\SoftmaxColor,
         height=40,
@@ -773,7 +770,7 @@
 \pic[shift={(0.75,0,0)}] at (rec_end_b9-east) 
     {Box={
         name=Recon,
-        caption=Recon,
+        caption=Rec mask,
         xlabel={{3, }},
         zlabel=512,
         fill=\ConvColor,
@@ -812,22 +809,37 @@
 -- node {\recopymidarrow}(ccr_b1-top)
 -- node {\recopymidarrow}(ccr_res_rec_b9-top)
 -- node {\recopymidarrow} (ccr_res_rec_b9-north);
+\node[anchor=south, scale=0.8] at (ccr_res_rec_b6-north) {$1{-}x$};\node[anchor=south, scale=0.8] at (ccr_res_rec_b7-north) {$1{-}x$};\node[anchor=south, scale=0.8] at (ccr_res_rec_b8-north) {$1{-}x$};\node[anchor=south, scale=0.8] at (ccr_res_rec_b9-north) {$1{-}x$};
+\pic[shift={(3,-2,0)}] at (Seg-east) 
+    {Box={
+        name=Fuse,
+        caption=Seg-Rec,
+        xlabel={{1, }},
+        zlabel=512,
+        fill=\ConvColor,
+        height=20,
+        width=1,
+        depth=20
+        }
+    };
 
-% stage b6: rec_end_b6 -> ccr_res_seg_b6 (err weight fusion)
-\draw [errconnection] (rec_end_b6-north)
-to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b6-north);
+\draw [connection]  (Seg-east)    -- node {\midarrow} (Fuse-west);
 
-% stage b7
-\draw [errconnection] (rec_end_b7-north)
-to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b7-north);
+\draw [connection]  (Recon-east)    -- node {\midarrow} (Fuse-west);
 
-% stage b8
-\draw [errconnection] (rec_end_b8-north)
-to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b8-north);
+\pic[shift={(1,0,0)}] at (Fuse-east) 
+    {Box={
+        name=Mask,
+        caption=Sigmoid → 0/1,
+        zlabel=512,
+        fill=\SoftmaxColor,
+        height=20,
+        width=1,
+        depth=20
+        }
+    };
 
-% stage b9
-\draw [errconnection] (rec_end_b9-north)
-to[out=90,in=90,looseness=0.8] node {\errmidarrow} (ccr_res_seg_b9-north);
+\draw [connection]  (Fuse-east)    -- node {\midarrow} (Mask-west);
 
 \end{tikzpicture}
 \end{document}
