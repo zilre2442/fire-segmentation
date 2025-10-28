@@ -16,7 +16,7 @@
     # 已存在仓库时（无需 --auto-clone）并编译为 PDF 和 PNG
     python models/visual/visualize_plotneuralnet.py --model RGS_Net_V1 --compile pdf png
 
-    # 一次性为三个模型全部生成与编译
+    # 一次性为所有模型生成与编译
                 python models/visual/visualize_plotneuralnet.py --model all --compile pdf png
 """
 
@@ -356,9 +356,47 @@ def maybe_convert_png(pdf_path: str) -> str | None:
         return None
 
 
+def build_arch_v3(project_path: str) -> List[str]:
+    """RGS-Net V3 可视化：
+    - 共享编码器 + 双解码器（左：分割；下：重建-背景掩膜）
+    - 重建分支的跳连在进入解码器前进行 1-x 翻转（以文字标注方式体现）
+    - 末端添加融合头：Seg - Rec -> Sigmoid -> Mask(0/1)
+    """
+    tikz = _tikzeng()
+    # 先复用双解码器的主体结构（不含误差引导），随后在结束前插入 V3 特定元素
+    base = build_arch_dual_decoder(
+        caption_left="Seg mask",
+        caption_right="Rec mask",
+        project_path=project_path,
+        show_err_fusion=False,
+    )
+    # 去掉文档结尾，便于追加自定义元素
+    arch = base[:-1]
+
+    # 在重建分支各级跳连的目标处标注翻转操作 1-x（紧贴节点上方）
+    arch += [
+        r"\node[anchor=south, scale=0.8] at (ccr_res_rec_b6-north) {$1{-}x$};",
+        r"\node[anchor=south, scale=0.8] at (ccr_res_rec_b7-north) {$1{-}x$};",
+        r"\node[anchor=south, scale=0.8] at (ccr_res_rec_b8-north) {$1{-}x$};",
+        r"\node[anchor=south, scale=0.8] at (ccr_res_rec_b9-north) {$1{-}x$};",
+    ]
+
+    # 添加融合头：Fuse(Seg - Rec) -> Sigmoid -> Mask(0/1)
+    arch += [
+        tikz.to_Conv(name="Fuse", s_filer=512, n_filer=1, offset="(3,-2,0)", to="(Seg-east)", width=1, height=20, depth=20, caption="Seg-Rec"),
+        tikz.to_connection("Seg", "Fuse"),
+        tikz.to_connection("Recon", "Fuse"),
+        tikz.to_ConvSoftMax(name="Mask", s_filer=512, offset="(1,0,0)", to="(Fuse-east)", width=1, height=20, depth=20, caption="Sigmoid → 0/1"),
+        tikz.to_connection("Fuse", "Mask"),
+    ]
+
+    arch += _common_finish()
+    return arch
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PlotNeuralNet 可视化生成器")
-    parser.add_argument("--model", choices=["baseline", "RGS_Net_V1", "RGS_Net_V2", "all"], default="baseline")
+    parser.add_argument("--model", choices=["baseline", "RGS_Net_V1", "RGS_Net_V2", "RGS_Net_V3", "all"], default="baseline")
     parser.add_argument("--output-dir", default=os.path.join(SCRIPT_DIR, "diagrams"), help="输出根目录。会在其下为每个模型创建独立目录")
     parser.add_argument("--compile", nargs="*", choices=["pdf", "png"], default=[], help="是否编译导出 pdf / png")
     parser.add_argument("--auto-clone", action="store_true", help="未找到 PlotNeuralNet 时自动克隆")
@@ -368,7 +406,7 @@ def main() -> None:
     ensure_plotneuralnet(auto_clone=args.auto_clone)
     setup_import_path()
 
-    targets = [args.model] if args.model != "all" else ["baseline", "RGS_Net_V1", "RGS_Net_V2"]
+    targets = [args.model] if args.model != "all" else ["baseline", "RGS_Net_V1", "RGS_Net_V2", "RGS_Net_V3"]
 
     results = []
     for name in targets:
@@ -391,6 +429,8 @@ def main() -> None:
                 project_path=project_path,
                 show_err_fusion=True,
             )
+        elif name == "RGS_Net_V3":
+            arch = build_arch_v3(project_path)
         else:
             # RGS_Net_V1：双解码器结构
             arch = build_arch_dual_decoder(
