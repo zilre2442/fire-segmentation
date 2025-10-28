@@ -48,3 +48,6 @@ ENV/
 
 # Ignore PlotNeuralNet visuals (LaTeX / build artifacts)
 models/visual/PlotNeuralNet/
+
+# datasets
+dataset/
