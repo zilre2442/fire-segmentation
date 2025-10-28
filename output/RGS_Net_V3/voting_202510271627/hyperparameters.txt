@@ -1,0 +1,58 @@
+======= 实验配置 =======
+启动时间: 2025-10-27 16:27:32
+实验ID: 202510271627
+
+======= 系统信息 =======
+设备: cuda
+GPU数量: 1
+PyTorch版本: 1.12.1
+
+======= 模型信息 =======
+模型架构: RGSNetV3
+总参数量: 43,228,098
+可训练参数量: 43,228,098
+
+======= 数据配置 =======
+数据路径: data/full
+算法类型: voting
+批大小: 64
+数据加载线程数: 4
+训练集是否打乱: 是
+波段选择: (7, 6, 5)
+
+======= 训练配置 =======
+总训练轮次: 200
+验证间隔: 每 1 个 epoch
+保存间隔: 每 10 个 epoch
+早停设置:
+  - 耐心值: 15
+  - 最小改善: 0.001
+重建分支损失: FocalTverskyLoss (与分割一致)
+
+======= 优化器配置 =======
+优化器类型: AdamW
+学习率: 0.0003
+权重衰减: 0.0001
+
+======= 损失函数 =======
+[Segmentation Loss]
+Criterion: FocalTverskyLoss
+    alpha (Tversky FN): 0.6
+    beta (Tversky FP): 0.4
+    gamma (Focal): 1.6
+    focal_alpha: 0.85
+    lambda_focal: 0.3
+    lambda_tversky: 0.7
+    smooth: 1e-06
+
+[Reconstruction Loss]
+Criterion: FocalTverskyLoss
+    alpha (Tversky FN): 0.6
+    beta (Tversky FP): 0.4
+    gamma (Focal): 1.6
+    focal_alpha: 0.85
+    lambda_focal: 0.3
+    lambda_tversky: 0.7
+    smooth: 1e-06
+
+========================================
