@@ -3,10 +3,11 @@ import random
 import csv
 
 algorithms = ('Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting')
-full_data_dir = "/data/zhaoys/activefire-google/decompressed/"
+# full_data_dir = "/data/zhaoys/activefire-google/decompressed/"
+full_data_dir = "dataset/activefire"
 
 # 创建保存CSV的目录
-output_dir = "data/full"
+output_dir = "data/splits_activefire"
 os.makedirs(output_dir, exist_ok=True)
 
 # 设置随机种子保证可重复性
