@@ -17,7 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from dataset import LandsatFireDataset
 from models.RGS_Net_V3 import RGSNetV3
-from loss import FocalTverskyLoss, get_criterion_info
+from loss import FocalTverskyLoss, SpatialFocalLoss, get_criterion_info
 from utils import adaptive_crop
 
 # 使用示例:
@@ -26,9 +26,9 @@ from utils import adaptive_crop
 #
 #    torchrun --nproc_per_node=4 exp/train_scripts/train_RGS_Net_V3.py
 #
-#    或者显式设置可见 GPU（例如使用 GPU 3-5）:
+#    或者显式设置可见 GPU（例如使用 GPU 1,）:
 #
-#    CUDA_VISIBLE_DEVICES=3 torchrun --nproc_per_node=1 exp/train_scripts/train_RGS_Net_V3.py
+#    CUDA_VISIBLE_DEVICES=1 torchrun --nproc_per_node=1 exp/train_scripts/train_RGS_Net_V3.py
 #
 # 2) 单卡快速调试（需要手动设置环境变量供脚本读取）:
 #
@@ -44,7 +44,7 @@ from utils import adaptive_crop
 
 
 
-DATA_ROOT = "data/full"
+DATA_ROOT = "data/splits_activefire"
 ALGORITHM = "voting"
 RUN_ID = datetime.now().strftime("%Y%m%d%H%M")
 SAVE_DIR = f"output/RGS_Net_V3/{ALGORITHM}_{RUN_ID}"
@@ -56,8 +56,8 @@ EPOCHS = 200
 LEARNING_RATE = 3e-4
 VAL_INTERVAL = 1
 SAVE_INTERVAL = 10
-EARLY_STOPPING_PATIENCE = 15
-EARLY_STOPPING_MIN_DELTA = 0.001
+EARLY_STOPPING_PATIENCE = 10
+EARLY_STOPPING_MIN_DELTA = 0
 
 zoom_start_epoch = 1500
 min_crop_size = 128
@@ -230,8 +230,43 @@ def train(rank: int, world_size: int) -> None:
         model = RGSNetV3(n_channels=len(BANDS), n_filters=64).to(device)
         ddp_model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
 
-        seg_criterion = FocalTverskyLoss()
-        recon_criterion = FocalTverskyLoss()
+        # 使用原始 logits 作为输入，需搭配 BCEWithLogitsLoss（内部带 Sigmoid）
+        # seg_criterion = torch.nn.BCEWithLogitsLoss()
+        # recon_criterion = torch.nn.BCEWithLogitsLoss()
+        # seg_criterion = FocalTverskyLoss()
+        # recon_criterion = FocalTverskyLoss()
+        
+        # SpatialFocalLoss 优化配置（针对 V3 双分支架构）:
+        # 
+        # 分割分支（火点检测）：
+        #   - weight_strategy="small": 小连通域（孤立火点）获得更高权重
+        #   - alpha=0.8, gamma=1.5: 聚焦小目标的标准 Focal Loss 参数
+        # 
+        # 重建分支（背景重建）：
+        #   - weight_strategy="large": 大连通域（背景区域）获得更高权重
+        #   - alpha=0.25, gamma=1.2: 降低 alpha 避免背景主导训练
+        # 
+        # 注意：已移除 weight_downsample_factor，使用原始分辨率计算连通域权重，
+        #      确保对火点像素只有1～5个的小样本能够准确计算连通域面积。
+        seg_criterion = SpatialFocalLoss(
+            weight_strategy="small",
+            alpha=0.75,
+            gamma=2.0,
+            weight_min=1.0,
+            weight_max=3.0,
+            weight_gamma=1.5,
+            background_weight=1.0
+        )
+        recon_criterion = SpatialFocalLoss(
+            weight_strategy="large",
+            alpha=0.25,
+            gamma=1.5,
+            weight_min=1.0,
+            weight_max=4.0,
+            weight_gamma=1.5,
+            background_weight=1.0
+        )
+        
         optimizer = torch.optim.AdamW(ddp_model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.8, patience=5)
 
@@ -441,7 +476,7 @@ def train(rank: int, world_size: int) -> None:
                 logger.info(f"Saved checkpoint to: {checkpoint_path}")
 
         if rank == 0:
-            final_model_path = os.path.join(SAVE_DIR, "model_final.pth")
+            final_model_path = os.path.join(weights_dir, "model_final.pth")
             torch.save(ddp_model.module.state_dict(), final_model_path)
             logger.info(f"Final model saved to: {final_model_path}")
 

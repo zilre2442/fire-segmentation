@@ -26,9 +26,9 @@ if _is_preinit_main():
     print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'}")
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DATA_ROOT = "data/full"
+DATA_ROOT = "data/splits_activefire"
 ALGORITHM = "voting"
-SAVE_DIR = "output/RGS_Net_V3/voting_date"
+SAVE_DIR = "output/RGS_Net_V3/multi_run/连通域提升_202511011046"
 BANDS = (7, 6, 5)
 
 SAMPLE_DIR = os.path.join(SAVE_DIR, "pred_samples")
@@ -36,7 +36,7 @@ SAMPLE_DIR = os.path.join(SAVE_DIR, "pred_samples")
 # 使用示例:
 # 1) 分布式评估 (torchrun 自动设置分布式环境变量):
 #
-#    CUDA_VISIBLE_DEVICES=3,5 torchrun --nproc_per_node=2 exp/eval_scripts/eval_RGS_Net_V3.py --dist --batch-size 64 --save-dir output/RGS_Net_V3/voting_date
+#    CUDA_VISIBLE_DEVICES=2 torchrun --nproc_per_node=1 exp/eval_scripts/eval_RGS_Net_V3.py --dist --batch-size 64 --save-dir output/RGS_Net_V3/voting_date
 #
 # 2) 单卡评估（手动设置环境变量）:
 #
@@ -249,19 +249,19 @@ if is_main_process():
         rgb = imgs_np[idx][:3]
         rgb_img = (rgb * 255).clip(0, 255).astype(np.uint8)
         rgb_img = np.transpose(rgb_img, (1, 2, 0))
-        Image.fromarray(rgb_img, mode="RGB").save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_rgb.png"))
+        Image.fromarray(rgb_img).save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_rgb.png"))
 
         gt_img = (gts_np[idx][0] * 255).astype(np.uint8)
-        Image.fromarray(gt_img, mode="L").save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_gt.png"))
+        Image.fromarray(gt_img).save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_gt.png"))
 
         seg_img = (seg_mask[idx][0] * 255).astype(np.uint8)
-        Image.fromarray(seg_img, mode="L").save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_seg.png"))
+        Image.fromarray(seg_img).save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_seg.png"))
 
         rec_img = (rec_mask[idx][0] * 255).astype(np.uint8)
-        Image.fromarray(rec_img, mode="L").save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_rec.png"))
+        Image.fromarray(rec_img).save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_rec.png"))
 
         fused_img = (fused_mask[idx][0] * 255).astype(np.uint8)
-        Image.fromarray(fused_img, mode="L").save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_fused.png"))
+        Image.fromarray(fused_img).save(os.path.join(SAMPLE_DIR, f"sample_{idx:02d}_fused.png"))
 
     # 可视化样例：每行 5 列（RGB复合、GT、Seg、Rec、Fused），不再逐波段展示
     rows = images.size(0)
