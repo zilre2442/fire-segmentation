@@ -1,137 +1,151 @@
-# RGS-Net：基于重建误差引导的火点分割（PyTorch）
+# Fire-Segmentation: RGS-Net V3 火点分割（PyTorch）
 
-本项目实现了一个共享编码器的双分支 U-Net：
-- 分割分支输出火点概率图；
-- 重建分支复原输入影像，利用重建误差作为“异常线索”门控分割概率，从而提升鲁棒性与精度。
+面向 Landsat 遥感影像的火点分割模型与训练/评估脚本，主力模型为 RGS-Net V3：共享编码器、分割与重建双分支，利用空间重建误差引导分割，兼顾鲁棒性与精度。
 
-## 特色
-- 共享编码器 + 双解码器（分割 / 重建）
-- 误差引导融合：`fused_probs = sigmoid(|x-\hat{x}|/tau) × seg_probs`
-- 重建损失仅在背景上计算，避免强行还原火点像素
-- torchrun 启动的分布式训练（DDP）
-- 评估仅保留微平均 Precision/Recall/F1（更干净、可复现）
-- 超参日志包含“分割损失 + 重建损失”的完整配置
+## 亮点
+- 共享编码器 + 双解码器（分割/重建），在复杂背景下更稳
+- 空间重建误差引导（Spatial guidance）提升难样本判别力
+- 支持分布式训练（torchrun + DDP），开箱即用
+- 提供批量训练与批量评估脚本，便于超参搜索与结果对比
+- 清晰的输出目录结构与日志/可视化产物
 
-## 目录结构
+## 仓库结构
 ```
-├─ data/
-│  └─ full/
-│     ├─ <ALGO>_train.csv
-│     ├─ <ALGO>_val.csv
-│     └─ <ALGO>_test.csv             # 每行：(image_path, mask_path)
+├─ dataset.py                        # 数据集定义：LandsatFireDataset
+├─ loss.py                           # 损失：FocalTverskyLoss、SpatialFocalLoss 等
+├─ utils.py                          # 常用工具：adaptive_crop 等
 ├─ models/
-│  ├─ RGS_Net.py                      # 模型定义（类名：RGSNet）
-│  └─ baseline.py                     # 基线 UNet（参考）
-├─ dataset.py                         # LandsatFireDataset（raster 读取）
-├─ loss.py                            # FocalTverskyLoss、MaskedL1Loss 等
-├─ utils.py                           # analyze_model_performance、adaptive_crop
-├─ train_RGS_Net.py                   # 分布式训练入口
-├─ eval_RGS_Net.py                    # 评估（仅微平均指标）
-└─ output/                            # 训练输出
+│  ├─ baseline.py                    # 基线模型（UNet 类）
+│  ├─ RGS_Net_V1.py                  # RGS-Net V1
+│  ├─ RGS_Net_V2.py                  # RGS-Net V2
+│  └─ RGS_Net_V3.py                  # RGS-Net V3（推荐）
+├─ exp/
+│  ├─ train_scripts/
+│  │  ├─ train_RGS_Net_V3.py         # 单次训练脚本（DDP）
+│  │  └─ multi_run_train_RGS_Net_V3.py # 批量训练脚本（多组超参串行跑）
+│  └─ eval_scripts/
+│     ├─ eval_RGS_Net_V3.py          # 单次评估脚本
+│     └─ multi_eval_RGS_Net_V3.py    # 批量评估脚本（汇总报告）
+├─ data/
+│  ├─ split_data_activefire.py       # 数据拆分工具（如需）
+│  ├─ unzip_data_activefire.py       # 数据解压工具（如需）
+│  └─ splits_activefire/             # 训练/验证/测试 CSV
+├─ dataset/activefire/               # 原始数据组织（如已提供）
+└─ output/                           # 训练输出与评估报告
 ```
 
-## 数据格式
-`dataset.py` 期望 CSV 文件包含表头，且每行两列：
+## 数据准备
+训练与评估脚本默认从 `data/splits_activefire/` 读取 CSV：
+
 ```
-image_path,mask_path
-/path/to/image.tif,/path/to/mask.tif
-...
+data/splits_activefire/
+├─ voting_train.csv
+├─ voting_val.csv
+└─ voting_test.csv
 ```
-- 通过 `bands` 参数选择波段（示例常用 (7,6,5)）；
-- Landsat 16-bit 影像会按 65535 归一化到 [0,1]。
 
-## 环境安装
-项目依赖：PyTorch、Rasterio、NumPy、Matplotlib、TQDM。
+CSV 每行通常包含图像与掩膜路径。可通过 `dataset.py` 的 `LandsatFireDataset` 的 `bands` 参数选择用于训练的波段（默认 `(7,6,5)`）。
 
-1）安装 PyTorch（根据你的 CUDA/OS 选择官方命令）：
-- https://pytorch.org/get-started/locally/
+## 环境准备
+建议 Python 3.8+，安装依赖：
 
-2）安装其余依赖：
 ```bash
-pip install rasterio numpy matplotlib tqdm
+pip install -r requirements.txt
 ```
 
-可选：若使用性能分析（CUDA profiler），请确保 CUDA 环境可用。
+PyTorch 请依据你的 CUDA/OS 在官网选择命令安装：https://pytorch.org/get-started/locally/
 
-## 模型概览
-文件：`models/RGS_Net.py`
-- 类：`RGSNet`
-- 前向输出（结构体）：
-  - `seg_logits`：分割分支 logits
-  - `seg_probs`：分割概率
-  - `reconstruction`：重建结果 \(\hat{x}\)
-  - `recon_error`：重建误差 \(|x-\hat{x}|\)
-  - `fused_probs`：融合后的概率
+## 快速开始
 
-融合过程（片段）：
-```
-recon_scalar = recon_error.mean(dim=1, keepdim=True)
-weighting = torch.sigmoid(recon_scalar / tau)
-fused = seg_probs * weighting
-```
+### 单次训练（RGS-Net V3）
+脚本：`exp/train_scripts/train_RGS_Net_V3.py`
 
-损失函数（见 `loss.py`）：
-- 分割：`FocalTverskyLoss`（训练脚本默认）
-- 重建：`MaskedL1Loss`（仅对背景像素计算）
+常用参数（在脚本顶部常量中设置）：
+- 数据与算法：`DATA_ROOT = "data/splits_activefire"`，`ALGORITHM = "voting"`
+- 波段：`BANDS = (7, 6, 5)`
+- 训练：`BATCH_SIZE = 64`，`EPOCHS = 200`，`LEARNING_RATE = 3e-4`
+- 日志/保存：`SAVE_DIR = output/RGS_Net_V3/<algo>_<时间戳>`（脚本会自动创建）
 
-## 训练（DDP）
-脚本：`train_RGS_Net.py`
-
-关键参数：
-- `DATA_ROOT = data/full`
-- `ALGORITHM`（CSV 前缀，可选：Kumar-Roy / Murphy / Schroeder / intersection / voting）
-- `BANDS = (7, 6, 5)`
-- `BATCH_SIZE = 128`，`EPOCHS = 200`，`LEARNING_RATE = 3e-4`
-- 重建损失权重：`RECON_LOSS_WEIGHT = 1.0`
-- 融合温度：`TAU = 1.0`
-
-使用 4 张 GPU 训练示例：
+运行示例（2 张 GPU）：
 ```bash
-torchrun --nproc_per_node=4 train_RGS_Net.py
+CUDA_VISIBLE_DEVICES=1,2 torchrun --nproc_per_node=2 exp/train_scripts/train_RGS_Net_V3.py
 ```
-输出（仅 rank 0 写入）：
-- `output/RGS_Net/<ALGO>_<时间戳>/`
-  - `model_best.pth`、`model_final.pth`、按间隔保存的 checkpoints
-  - `hyperparameters.txt`（记录模型、优化器，以及“分割/重建损失”的配置）
-  - `logs/`（各进程日志）
 
-备注：
-- 训练使用 `DistributedSampler`，必须通过 torchrun 启动以注入 RANK/WORLD_SIZE/LOCAL_RANK。
-- 脚本包含早停与 ReduceLROnPlateau 学习率调度。
-- 可通过全局参数启用 `adaptive_crop()`（缩放式课程学习）。
+训练输出（位于 `output/RGS_Net_V3/` 下，示例）：
+- `weights/`：`model_best.pth`、周期性保存的权重
+- `logs/`：各 rank 日志
+- `loss_curves.png` 等可选可视化
 
-## 评估
-脚本：`eval_RGS_Net.py`
-- 设置 `SAVE_DIR` 指向训练输出目录（如 `output/RGS_Net/voting_YYYYMMDDHHMM`）。
-- 是否使用融合：`USE_FUSION=True/False`；温度参数 `TAU` 可调。
+### 批量训练（多组超参串行）
+脚本：`exp/train_scripts/multi_run_train_RGS_Net_V3.py`
 
-运行：
+1) 在脚本内的 `EXPERIMENTS` 列表中定义多组实验（每组包含名称、描述和超参）。
+2) 运行：
 ```bash
-python eval_RGS_Net.py
-```
-输出：
-- `eval_<model_name>.txt`（微平均指标）
-- 同时会保存一份小样本预测可视化 `<model_name>_prediction.png`
-
-注意：评估脚本默认从 `SAVE_DIR/weights/model_best.pth` 加载；若你的权重保存在 `SAVE_DIR/model_best.pth`，请自行：
-- 将权重复制到 `SAVE_DIR/weights/` 下；或
-- 修改评估脚本中的 `param_path` 指向实际文件。
-
-## 快速自检
-使用 `utils.py` 的工具快速查看模型推理与显存：
-```python
-from models.RGS_Net import RGSNet
-from utils import analyze_model_performance
-
-analyze_model_performance(
-    model=RGSNet(n_channels=3, n_filters=32),
-    input_shape=(1, 3, 256, 256),
-    device='cpu'
-)
+CUDA_VISIBLE_DEVICES=1,2 python3 exp/train_scripts/multi_run_train_RGS_Net_V3.py
 ```
 
-## 常见问题
-- Rasterio/GDAL 安装：建议使用 conda-forge 渠道或参考你平台的 GDAL 安装指南。
-- CSV 路径找不到：检查 CSV 内是否为绝对路径；`dataset.py` 会校验文件存在。
-- CUDA OOM：降低 `BATCH_SIZE`，减少并行进程，或启用裁剪。
-- DDP 卡住：务必用 `torchrun` 启动，并确保所有进程看到相同的数据与 CSV。
+产物：
+- `output/RGS_Net_V3/multi_run/` 目录下，每个实验生成一个独立子目录（含 `weights/`、`logs/`、`experiment_config.json`）
+- 汇总文件：`experiments_summary.json`，以及 `multi_run_log.txt`
+
+### 单次评估
+脚本：`exp/eval_scripts/eval_RGS_Net_V3.py`
+
+将 `--save-dir` 指向训练输出目录（包含 `weights/model_best.pth`）：
+```bash
+python3 exp/eval_scripts/eval_RGS_Net_V3.py \
+  --batch-size 64 \
+  --num-workers 4 \
+  --algo voting \
+  --save-dir output/RGS_Net_V3/voting_YYYYMMDDHHMM
+```
+
+产物：
+- 指标：`eval_model_best.txt`（微平均 Precision/Recall/F1）
+- 可视化：`model_best_prediction.png`、随机样例图保存在 `pred_samples/`
+
+提示：如需分布式评估，可用 torchrun（确保设置 `MASTER_ADDR/MASTER_PORT` 或直接使用单进程）。
+
+### 批量评估（对批量训练产物批量评估并汇总）
+脚本：`exp/eval_scripts/multi_eval_RGS_Net_V3.py`
+
+默认读取 `output/RGS_Net_V3/multi_run/experiments_summary.json` 并逐个评估：
+```bash
+CUDA_VISIBLE_DEVICES=1 python3 exp/eval_scripts/multi_eval_RGS_Net_V3.py
+```
+
+或自定义汇总文件：
+```bash
+CUDA_VISIBLE_DEVICES=1 python3 exp/eval_scripts/multi_eval_RGS_Net_V3.py \
+  --summary-file output/RGS_Net_V3/multi_run/experiments_summary.json
+```
+
+产物：
+- 文本对比报告：`evaluation_comparison.txt`（按 F1 排序）
+- JSON 报告：`evaluation_results.json`
+
+## 配置与可调参数小抄
+损失（参见 `loss.py` 与训练脚本注入参数）：
+- 分割分支：SpatialFocalLoss（`SEG_*` 参数）
+  - 常用：`SEG_ALPHA`、`SEG_GAMMA`、`SEG_WEIGHT_STRATEGY`（small/large）
+- 重建分支：SpatialFocalLoss（`REC_*` 参数）
+  - 常用：`REC_ALPHA`、`REC_GAMMA`、`REC_WEIGHT_STRATEGY`
+
+调优建议（目标不同优先级不同）：
+- 提高精确率（减少误报）：提高 `*_GAMMA`、增大背景权重（如 `background_weight`）、后处理删除小连通域、提升推理阈值
+- 提高召回率（减少漏报）：适当增大 `SEG_ALPHA`，降低推理阈值，放宽小连通域过滤
+
+## 常见问题与排错
+- NCCL/分布式初始化错误（如缺少 MASTER_ADDR）：
+  - 单进程运行评估：`python3 eval_RGS_Net_V3.py ...`（不使用 torchrun）
+  - 或设置：`MASTER_ADDR=127.0.0.1 MASTER_PORT=29500 RANK=0 WORLD_SIZE=1 LOCAL_RANK=0`
+- 找不到日志文件：脚本会自动创建 `output/...` 目录；若自定义 `SAVE_DIR`，请确保有写权限
+- 权重路径：默认从 `SAVE_DIR/weights/model_best.pth` 读取
+- CUDA OOM：降低 `BATCH_SIZE`、减少 GPU 进程数，或使用更小裁剪/分辨率
+- CSV 路径：确保为有效可读路径；必要时使用绝对路径
+
+## 许可证与引用
+本项目仅用于学术研究与教学目的。若在论文或项目中使用，请引用本仓库并致谢作者。
+
+—— Happy Segmenting 🔥
