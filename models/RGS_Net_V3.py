@@ -8,6 +8,14 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+# 确保项目根目录在 sys.path 中，以便导入顶层模块（如 utils）
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
@@ -158,7 +166,7 @@ class RGSNetV3(nn.Module):
 		self,
 		n_channels: int = 3,
 		n_classes: int = 1,
-		n_filters: int = 32,
+		n_filters: int = 64,
 		depth: int = 5,
 		batchnorm: bool = True,
 		dropout: float = 0.1,
@@ -292,4 +300,4 @@ if __name__ == "__main__":
 	analyze_v3_performance(input_shape=(1, 3, 256, 256), device="cpu")
 
 	if torch.cuda.is_available():
-		analyze_v3_performance(input_shape=(8, 3, 256, 256), device="cuda", gpu_id=3)
+		analyze_v3_performance(input_shape=(8, 3, 256, 256), device="cuda", gpu_id=1)
