@@ -1,0 +1,70 @@
+{
+    "total_experiments": 2,
+    "successful_experiments": 2,
+    "failed_experiments": 0,
+    "gpu_devices": "1",
+    "num_gpus": 1,
+    "experiments": [
+        {
+            "name": "分割分支优化1",
+            "description": "基于连通域提升_202511011046，重建分支使用uniform策略，降低分割分支SEG_ALPHA和SEG_GAMMA",
+            "output_dir": "output/RGS_Net_V3/multi_run/分割分支优化1_202511030938",
+            "config_file": "output/RGS_Net_V3/multi_run/分割分支优化1_202511030938/experiment_config.json",
+            "temp_script": "output/RGS_Net_V3/multi_run/temp_scripts/train_分割分支优化1.py",
+            "success": true,
+            "error": null,
+            "duration_seconds": 15475.79708814621,
+            "start_time": "2025-11-03T09:38:22.765211",
+            "end_time": "2025-11-03T13:56:18.562299",
+            "params": {
+                "BATCH_SIZE": 64,
+                "LEARNING_RATE": 0.0003,
+                "EPOCHS": 200,
+                "EARLY_STOPPING_PATIENCE": 10,
+                "SEG_WEIGHT_STRATEGY": "small",
+                "SEG_ALPHA": 0.7,
+                "SEG_GAMMA": 1.5,
+                "SEG_WEIGHT_MIN": 1.0,
+                "SEG_WEIGHT_MAX": 4.0,
+                "SEG_WEIGHT_GAMMA": 2.0,
+                "REC_WEIGHT_STRATEGY": "uniform",
+                "REC_ALPHA": 0.25,
+                "REC_GAMMA": 1.5,
+                "REC_WEIGHT_MIN": 1.0,
+                "REC_WEIGHT_MAX": 4.0,
+                "REC_WEIGHT_GAMMA": 2.0
+            }
+        },
+        {
+            "name": "分割分支优化2",
+            "description": "基于连通域提升_202511011046，重建分支使用large策略，降低分割分支SEG_ALPHA和SEG_GAMMA",
+            "output_dir": "output/RGS_Net_V3/multi_run/分割分支优化2_202511031356",
+            "config_file": "output/RGS_Net_V3/multi_run/分割分支优化2_202511031356/experiment_config.json",
+            "temp_script": "output/RGS_Net_V3/multi_run/temp_scripts/train_分割分支优化2.py",
+            "success": true,
+            "error": null,
+            "duration_seconds": 17515.5205142498,
+            "start_time": "2025-11-03T13:56:18.563842",
+            "end_time": "2025-11-03T18:48:14.084356",
+            "params": {
+                "BATCH_SIZE": 64,
+                "LEARNING_RATE": 0.0003,
+                "EPOCHS": 200,
+                "EARLY_STOPPING_PATIENCE": 10,
+                "SEG_WEIGHT_STRATEGY": "small",
+                "SEG_ALPHA": 0.7,
+                "SEG_GAMMA": 1.5,
+                "SEG_WEIGHT_MIN": 1.0,
+                "SEG_WEIGHT_MAX": 4.0,
+                "SEG_WEIGHT_GAMMA": 1.5,
+                "REC_WEIGHT_STRATEGY": "large",
+                "REC_ALPHA": 0.3,
+                "REC_GAMMA": 2.0,
+                "REC_WEIGHT_MIN": 1.0,
+                "REC_WEIGHT_MAX": 4.0,
+                "REC_WEIGHT_GAMMA": 1.5
+            }
+        }
+    ],
+    "generated_at": "2025-11-03T18:48:14.086316"
+}

@@ -1,0 +1,22 @@
+{
+    "name": "分割分支优化1",
+    "description": "基于连通域提升_202511011046，重建分支使用uniform策略，降低分割分支SEG_ALPHA和SEG_GAMMA",
+    "params": {
+        "BATCH_SIZE": 64,
+        "LEARNING_RATE": 0.0003,
+        "EPOCHS": 200,
+        "EARLY_STOPPING_PATIENCE": 10,
+        "SEG_WEIGHT_STRATEGY": "small",
+        "SEG_ALPHA": 0.7,
+        "SEG_GAMMA": 1.5,
+        "SEG_WEIGHT_MIN": 1.0,
+        "SEG_WEIGHT_MAX": 4.0,
+        "SEG_WEIGHT_GAMMA": 2.0,
+        "REC_WEIGHT_STRATEGY": "uniform",
+        "REC_ALPHA": 0.25,
+        "REC_GAMMA": 1.5,
+        "REC_WEIGHT_MIN": 1.0,
+        "REC_WEIGHT_MAX": 4.0,
+        "REC_WEIGHT_GAMMA": 2.0
+    }
+}

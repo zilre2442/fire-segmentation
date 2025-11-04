@@ -1,0 +1,22 @@
+{
+    "name": "分割分支优化2",
+    "description": "基于连通域提升_202511011046，重建分支使用uniform策略，提高分割分支SEG_GAMMA和SEG_WEIGHT_MAX",
+    "params": {
+        "BATCH_SIZE": 64,
+        "LEARNING_RATE": 0.0003,
+        "EPOCHS": 200,
+        "EARLY_STOPPING_PATIENCE": 10,
+        "SEG_WEIGHT_STRATEGY": "small",
+        "SEG_ALPHA": 0.75,
+        "SEG_GAMMA": 2.0,
+        "SEG_WEIGHT_MIN": 1.0,
+        "SEG_WEIGHT_MAX": 8.0,
+        "SEG_WEIGHT_GAMMA": 1.5,
+        "REC_WEIGHT_STRATEGY": "large",
+        "REC_ALPHA": 0.25,
+        "REC_GAMMA": 1.5,
+        "REC_WEIGHT_MIN": 1.0,
+        "REC_WEIGHT_MAX": 8.0,
+        "REC_WEIGHT_GAMMA": 1.5
+    }
+}
