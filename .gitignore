@@ -50,4 +50,8 @@ ENV/
 models/visual/PlotNeuralNet/
 
 # datasets
-dataset/
+dataset/*
+
+
+squashfs-root/
+.gitignore
