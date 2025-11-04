@@ -16,8 +16,8 @@ class FocalTverskyLoss(nn.Module):
         Args:
             alpha: Tversky假阴性权重(漏报惩罚)
             beta: Tversky假阳性权重(误报惩罚)
-            gamma: Focal Loss聚焦参数
-            focal_alpha: Focal Loss正样本权重
+            gamma: Focal Loss聚焦参数（难易样本区分）
+            focal_alpha: Focal Loss正样本权重（正样本与背景样本的区分）
             lambda_focal: Focal Loss组合权重
             lambda_tversky: Tversky Loss组合权重
             smooth: 平滑系数防除零
@@ -179,6 +179,8 @@ def get_criterion_info(criterion):
         info += f"    weight_gamma: {criterion.weight_gamma}\n"
         info += f"    background_weight: {criterion.background_weight}\n"
         info += f"    connectivity: {criterion.connectivity}\n"
+        info += f"    weight_strategy: {criterion.weight_strategy}\n"
+        info += f"    weight_update_freq: {criterion.weight_update_freq}\n"
         info += f"    eps: {criterion.eps}\n"    
     elif criterion_name == "MaskedL1Loss":
         info += f"    reduction: {criterion.reduction}\n"
@@ -192,7 +194,7 @@ def get_criterion_info(criterion):
 class SpatialFocalLoss(nn.Module):
     """带空间连通域加权的 Focal Loss。
 
-    该损失在标准 Focal Loss 的基础上，通过连通域面积为孤立火点提供额外权重。
+    该损失在标准 Focal Loss 的基础上,通过连通域面积为孤立火点提供额外权重。
     小面积连通域 (孤立像素/细小火点) 会获得更大的权重，从而提升模型对小目标的关注度。
 
     Args:
@@ -206,6 +208,8 @@ class SpatialFocalLoss(nn.Module):
         weight_gamma: 控制权重随面积衰减的幂指数，数值越大代表对小目标的加权越强。
         background_weight: 背景像素的权重。
         connectivity: 连通域邻域类型，``4`` 或 ``8``。
+        weight_strategy: 连通域加权策略，可选 ``"small"`` (小目标高权重)、
+                        ``"large"`` (大目标高权重)、``"uniform"`` (不加权)。
         eps: 数值稳定项。
 
     Note:
@@ -214,23 +218,27 @@ class SpatialFocalLoss(nn.Module):
 
     def __init__(
         self,
-        gamma: float = 2.0,
+        gamma: float = 1.5,
         alpha: float = 0.8,
         include_pred_mask: bool = False,
         target_threshold: float = 0.5,
         pred_threshold: float = 0.5,
         weight_min: float = 1.0,
-        weight_max: float = 8.0,
+        weight_max: float = 4.0,
         weight_gamma: float = 1.5,
         background_weight: float = 1.0,
         connectivity: int = 8,
         eps: float = 1e-6,
+        weight_update_freq: int = 1,
+        weight_strategy: str = "small",
     ) -> None:
         super().__init__()
         if connectivity not in (4, 8):
             raise ValueError("connectivity 仅支持 4 或 8")
         if weight_max < weight_min:
             raise ValueError("weight_max 应大于等于 weight_min")
+        if weight_strategy not in {"small", "large", "uniform"}:
+            raise ValueError("weight_strategy 必须是 'small', 'large' 或 'uniform'")
 
         self.gamma = gamma
         self.alpha = alpha
@@ -243,6 +251,8 @@ class SpatialFocalLoss(nn.Module):
         self.background_weight = background_weight
         self.connectivity = connectivity
         self.eps = eps
+        self.weight_update_freq = weight_update_freq
+        self.weight_strategy = weight_strategy
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         assert pred.size() == target.size(), "预测与标签尺寸不一致"
@@ -263,7 +273,7 @@ class SpatialFocalLoss(nn.Module):
         else:
             focal_loss = focal_weight * bce_loss
 
-        # 空间权重
+        # 空间权重（每个 batch 重新计算）
         with torch.no_grad():
             weight_map = self._build_spatial_weight(pred=probas, target=target)
 
@@ -279,13 +289,89 @@ class SpatialFocalLoss(nn.Module):
         else:
             union_mask = target_mask.bool()
 
-        batch_weights = []
-        for mask in union_mask:
-            weight_np = self._component_weight_2d(mask.cpu().numpy().astype(np.uint8))
-            batch_weights.append(torch.from_numpy(weight_np))
+        # uniform 策略：快速路径，直接返回常数权重
+        if self.weight_strategy == "uniform":
+            weights = torch.where(
+                union_mask,
+                torch.ones_like(union_mask, dtype=torch.float32),
+                torch.full_like(union_mask, self.background_weight, dtype=torch.float32),
+            )
+            return weights.unsqueeze(1)
 
-        weight_tensor = torch.stack(batch_weights, dim=0)
-        return weight_tensor.unsqueeze(1).to(target.device)
+        # 原尺寸计算连通域权重
+        batch_weights = self._component_weight_2d_gpu(union_mask)
+        return batch_weights.unsqueeze(1)
+
+    def _component_weight_2d_gpu(self, binary_masks: torch.Tensor) -> torch.Tensor:
+        """使用 OpenCV 高效计算连通域权重（CPU优化后传回GPU）
+        
+        Args:
+            binary_masks: 形状为 [B, H, W] 的二值掩膜张量
+            
+        Returns:
+            权重图，形状为 [B, H, W]
+        """
+        import cv2
+        
+        device = binary_masks.device
+        B, H, W = binary_masks.shape
+        
+        weights_batch = []
+        
+        for b in range(B):
+            # 将mask转到CPU并转为numpy（uint8格式）
+            mask_np = binary_masks[b].cpu().numpy().astype(np.uint8)
+            
+            if mask_np.sum() == 0:
+                # 全背景情况
+                weight_map = np.full_like(mask_np, self.background_weight, dtype=np.float32)
+                weights_batch.append(torch.from_numpy(weight_map))
+                continue
+            
+            # 使用OpenCV的连通域标记（高度优化）
+            connectivity_cv = 4 if self.connectivity == 4 else 8
+            num_labels, labels = cv2.connectedComponents(mask_np, connectivity=connectivity_cv)
+            
+            if num_labels <= 1:  # 只有背景
+                weight_map = np.full_like(mask_np, self.background_weight, dtype=np.float32)
+                weights_batch.append(torch.from_numpy(weight_map))
+                continue
+            
+            # 统计每个连通域的面积
+            areas = np.bincount(labels.flatten()).astype(np.float32)
+            areas[0] = np.inf  # 背景不参与计算
+
+            # 构建面积映射（前景像素处为该连通域面积）
+            area_map = areas[labels]
+
+            # 根据策略计算权重
+            if self.weight_strategy == "small":
+                # 小目标更高权重：使用归一化反面积
+                inv_area = 1.0 / np.maximum(area_map, 1.0)
+                inv_area[~np.isfinite(inv_area)] = 0.0
+                if np.any(inv_area > 0):
+                    inv_area = inv_area / inv_area.max()
+                weights = self.weight_min + (self.weight_max - self.weight_min) * (inv_area ** self.weight_gamma)
+            elif self.weight_strategy == "large":
+                # 大连通域更高权重：使用归一化面积
+                area_norm = area_map.copy()
+                fg = (labels > 0)
+                max_area = area_norm[fg].max() if np.any(fg) else 1.0
+                if max_area <= 0:
+                    max_area = 1.0
+                area_norm = area_norm / max_area
+                weights = self.weight_min + (self.weight_max - self.weight_min) * (np.power(area_norm, self.weight_gamma))
+            else:  # uniform
+                # 前景统一权重 1.0（不做连通域加权）
+                weights = np.ones_like(area_map, dtype=np.float32)
+
+            # 背景权重单独指定
+            weights[labels == 0] = self.background_weight
+            
+            weights_batch.append(torch.from_numpy(weights.astype(np.float32)))
+        
+        # 将结果堆叠并传回GPU
+        return torch.stack(weights_batch, dim=0).to(device)
 
     def _component_weight_2d(self, binary_mask: np.ndarray) -> np.ndarray:
         if binary_mask.ndim != 2:
