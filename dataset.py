@@ -37,27 +37,47 @@ class LandsatFireDataset(Dataset):
     
     def __getitem__(self, idx):
         img_path, mask_path = self.pairs[idx]
-        
-        # 读取火点掩码
-        with rasterio.open(mask_path) as src:
-            mask = src.read()
-        
-        # 读取热红外图像
-        with rasterio.open(img_path) as src:
-            thermal_img = src.read(self.bands)
-        
-        # 创建热红外图像 [C, H, W], 通道数等于波段数, 对于单通道图像需增加通道维度
-        if thermal_img.ndim == 2:
-            thermal_img = np.expand_dims(thermal_img, axis=0).astype(np.float32)
-        
-        # 归一化处理, landsat8数据为 16bit 量化
-        thermal_img = thermal_img / 65535
-        
-        # 转换为PyTorch张量
-        thermal_img = torch.from_numpy(thermal_img).float()
-        mask = torch.from_numpy(mask).float()
-        
-        return thermal_img, mask
+
+        try:
+            # 读取掩膜（优先读取第1个波段，得到 [H, W]）
+            with rasterio.open(mask_path) as msrc:
+                if msrc.count < 1:
+                    raise ValueError(f"掩膜没有可读取的波段: {mask_path}")
+                mask = msrc.read(1)  # [H, W]
+
+            # 读取影像指定波段
+            with rasterio.open(img_path) as isrc:
+                if len(self.bands) == 0:
+                    raise ValueError("bands 参数不能为空")
+                max_band = max(self.bands)
+                if max_band > isrc.count:
+                    raise ValueError(
+                        f"请求的波段 {self.bands} 超过影像可用波段数 {isrc.count}: {img_path}"
+                    )
+                thermal_img = isrc.read(self.bands)  # [C, H, W]
+
+            # 确保图像为 [C, H, W]
+            if thermal_img.ndim == 2:
+                thermal_img = np.expand_dims(thermal_img, axis=0).astype(np.float32)
+
+            # 掩膜统一为 [1, H, W]
+            if mask.ndim == 2:
+                mask = np.expand_dims(mask, axis=0)
+
+            # 归一化处理, landsat8数据为 16bit 量化（PNG 掩膜不需要归一化）
+            thermal_img = thermal_img / 65535.0
+
+            # 转换为 PyTorch 张量
+            thermal_img = torch.from_numpy(thermal_img).float()
+            mask = torch.from_numpy(mask).float()
+
+            return thermal_img, mask
+
+        except Exception as e:
+            # 在 DataLoader worker 中抛出更可读的异常，便于定位问题样本
+            raise RuntimeError(
+                f"读取样本失败 idx={idx}: img='{img_path}', mask='{mask_path}' | 错误: {e}"
+            )
 
 # 使用示例
 if __name__ == "__main__":

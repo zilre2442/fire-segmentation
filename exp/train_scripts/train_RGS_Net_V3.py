@@ -26,9 +26,9 @@ from utils import adaptive_crop
 #
 #    torchrun --nproc_per_node=4 exp/train_scripts/train_RGS_Net_V3.py
 #
-#    或者显式设置可见 GPU（例如使用 GPU 1,）:
+#    或者显式设置可见 GPU（例如使用 GPU 1,2）:
 #
-#    CUDA_VISIBLE_DEVICES=1 torchrun --nproc_per_node=1 exp/train_scripts/train_RGS_Net_V3.py
+#    CUDA_VISIBLE_DEVICES=1,2 torchrun --nproc_per_node=2 exp/train_scripts/train_RGS_Net_V3.py
 #
 # 2) 单卡快速调试（需要手动设置环境变量供脚本读取）:
 #
@@ -44,8 +44,10 @@ from utils import adaptive_crop
 
 
 
-DATA_ROOT = "data/splits_activefire"
-ALGORITHM = "voting"
+# DATA_ROOT = "data/splits_activefire"
+# ALGORITHM = "voting"
+DATA_ROOT = 'data/splits_land8fire'
+ALGORITHM = 'Land8Fire'
 RUN_ID = datetime.now().strftime("%Y%m%d%H%M")
 SAVE_DIR = f"output/RGS_Net_V3/{ALGORITHM}_{RUN_ID}"
 BANDS = (7, 6, 5)
@@ -253,7 +255,7 @@ def train(rank: int, world_size: int) -> None:
             alpha=0.75,
             gamma=2.0,
             weight_min=1.0,
-            weight_max=3.0,
+            weight_max=4.0,
             weight_gamma=1.5,
             background_weight=1.0
         )
