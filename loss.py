@@ -8,31 +8,13 @@ import torch.nn.functional as F
 
 
 class FocalTverskyLoss(nn.Module):
+    """标准 Focal + Tversky 组合损失（修正 BCE 用法）。
+
+    原版本错误地对已经 sigmoid 的概率使用 binary_cross_entropy_with_logits。
+    这里保持接口不变：输入 pred 为 logits，内部再 sigmoid 得概率。
+    """
     def __init__(self, alpha=0.6, beta=0.4, gamma=1.6, focal_alpha=0.85,
                  lambda_focal=0.3, lambda_tversky=0.7, smooth=1e-6):
-        """
-        组合损失: λ1 * Focal Loss + λ2 * Tversky Loss\n
-        此损失函数自带sigmod
-        Args:
-            alpha: Tversky假阴性权重(漏报惩罚)
-            beta: Tversky假阳性权重(误报惩罚)
-            gamma: Focal Loss聚焦参数（难易样本区分）
-            focal_alpha: Focal Loss正样本权重（正样本与背景样本的区分）
-            lambda_focal: Focal Loss组合权重
-            lambda_tversky: Tversky Loss组合权重
-            smooth: 平滑系数防除零
-
-        Example:
-            >>> # 使用示例
-            >>> criterion = FocalTverskyLoss(
-            ...     alpha=0.7,  # 高漏报惩罚
-            ...     beta=0.3,  # 低误报惩罚
-            ...     gamma=2.0,  # 聚焦困难样本
-            ...     focal_alpha=0.85,  # 正样本权重
-            ...     lambda_focal=0.7,
-            ...     lambda_tversky=0.3
-            ... )
-        """
         super().__init__()
         self.alpha = alpha
         self.beta = beta
@@ -42,41 +24,26 @@ class FocalTverskyLoss(nn.Module):
         self.lambda_tversky = lambda_tversky
         self.smooth = smooth
 
-    def forward(self, pred, target):
-        # 输入检查
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         assert pred.size() == target.size(), "预测与标签尺寸不一致"
+        target = target.float()
+        probas = torch.sigmoid(pred)
 
-        # 获取概率图 (假设pred未归一化)
-        pred = torch.sigmoid(pred)
-
-        # ===== 1. 计算Focal Loss =====
-        ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
-        p_t = torch.where(target == 1, pred, 1 - pred)
-        focal_weight = (1 - p_t) ** self.gamma
-        focal_loss = focal_weight * ce_loss
-
-        # 正样本加权
+        # Focal BCE (逐像素)
+        bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+        p_t = torch.where(target == 1, probas, 1 - probas)
+        focal_weight = (1 - p_t).pow(self.gamma)
         alpha_factor = torch.where(target == 1, self.focal_alpha, 1 - self.focal_alpha)
-        focal_loss = alpha_factor * focal_loss
+        focal_loss_pixel = alpha_factor * focal_weight * bce_loss
+        focal_loss = focal_loss_pixel.mean()
 
-        # ===== 2. 计算Tversky Loss =====
-        # 计算TP/FP/FN
-        tp = torch.sum(pred * target)  # 真阳性
-        fp = torch.sum(pred * (1 - target))  # 假阳性
-        fn = torch.sum((1 - pred) * target)  # 假阴性
-
-        # Tversky系数 (数值稳定版)
+        # Tversky
+        tp = (probas * target).sum()
+        fp = (probas * (1 - target)).sum()
+        fn = ((1 - probas) * target).sum()
         tversky = (tp + self.smooth) / (tp + self.alpha * fn + self.beta * fp + self.smooth)
         tversky_loss = 1 - tversky
-
-        # ===== 3. 加权组合 =====
-        batch_focal = torch.mean(focal_loss)  # 批平均
-        combined_loss = (
-                self.lambda_focal * batch_focal +
-                self.lambda_tversky * tversky_loss
-        )
-
-        return combined_loss
+        return self.lambda_focal * focal_loss + self.lambda_tversky * tversky_loss
 
 class FocalOHEMLoss(nn.Module):
     def __init__(self, gamma=2.0, alpha=0.8, ohem_ratio=0.1, mode='focal'):
@@ -473,3 +440,118 @@ class MaskedL1Loss(nn.Module):
 
         denom = background_mask.sum().clamp_min(self.eps)
         return diff.sum() / denom
+
+class SpatialFocalTverskyLoss(nn.Module):
+    """融合 small 连通域加权策略的 Focal+Tversky 损失（仅用于单通道二分类）。
+
+    权重图专注于小面积连通域：权重 = w_min + (w_max - w_min) * (inv_area_norm ** area_gamma)
+    背景像素统一给 background_weight。
+
+    公式：Loss = λ_focal * (Σ_i focal_i * w_i / Σ_i w_i) + λ_tversky * (1 - Tversky)
+
+    Args:
+        alpha_tversky: Tversky FN 权重（漏报惩罚）
+        beta_tversky: Tversky FP 权重（误报惩罚）
+        gamma_focal: Focal 聚焦参数
+        focal_alpha: 正样本 alpha 权重
+        lambda_focal: Focal 部分权重
+        lambda_tversky: Tversky 部分权重
+        weight_min, weight_max: 空间权重范围
+        area_gamma: 控制小面积增强强度（越大越强调小目标）
+        background_weight: 背景像素权重
+        connectivity: 连通域 4 或 8 邻域
+        smooth: 数值稳定项
+        eps: 加权归一化防除零
+    """
+    def __init__(
+        self,
+        alpha_tversky: float = 0.6,
+        beta_tversky: float = 0.4,
+        gamma_focal: float = 1.6,
+        focal_alpha: float = 0.85,
+        lambda_focal: float = 0.4,
+        lambda_tversky: float = 0.6,
+        weight_min: float = 1.0,
+        weight_max: float = 4.0,
+        area_gamma: float = 1.5,
+        background_weight: float = 1.0,
+        connectivity: int = 8,
+        smooth: float = 1e-6,
+        eps: float = 1e-6,
+    ) -> None:
+        super().__init__()
+        if connectivity not in (4, 8):
+            raise ValueError("connectivity 仅支持 4 或 8")
+        if weight_max < weight_min:
+            raise ValueError("weight_max 必须 >= weight_min")
+        self.alpha_tversky = alpha_tversky
+        self.beta_tversky = beta_tversky
+        self.gamma_focal = gamma_focal
+        self.focal_alpha = focal_alpha
+        self.lambda_focal = lambda_focal
+        self.lambda_tversky = lambda_tversky
+        self.weight_min = weight_min
+        self.weight_max = weight_max
+        self.area_gamma = area_gamma
+        self.background_weight = background_weight
+        self.connectivity = connectivity
+        self.smooth = smooth
+        self.eps = eps
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if pred.shape != target.shape:
+            raise ValueError("pred 与 target 形状需一致")
+        if pred.dim() != 4 or pred.size(1) != 1:
+            raise ValueError("仅支持 [B,1,H,W] 二分类掩膜")
+        target = target.float()
+        probas = torch.sigmoid(pred)
+
+        # Focal (逐像素)
+        bce = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+        p_t = torch.where(target == 1, probas, 1 - probas)
+        focal_mod = (1 - p_t).pow(self.gamma_focal)
+        alpha_factor = torch.where(target == 1, self.focal_alpha, 1 - self.focal_alpha)
+        focal_pix = alpha_factor * focal_mod * bce  # [B,1,H,W]
+
+        # 空间权重
+        with torch.no_grad():
+            weights = self._compute_small_weights(target)  # [B,1,H,W]
+
+        focal_weighted = (focal_pix * weights).sum() / (weights.sum().clamp_min(self.eps))
+
+        # Tversky（未加权，保持全局统计）
+        tp = (probas * target).sum()
+        fp = (probas * (1 - target)).sum()
+        fn = ((1 - probas) * target).sum()
+        tversky = (tp + self.smooth) / (tp + self.alpha_tversky * fn + self.beta_tversky * fp + self.smooth)
+        tversky_loss = 1 - tversky
+        return self.lambda_focal * focal_weighted + self.lambda_tversky * tversky_loss
+
+    def _compute_small_weights(self, target: torch.Tensor) -> torch.Tensor:
+        # target 已是 [B,1,H,W]
+        mask = (target > 0.5).squeeze(1)  # [B,H,W]
+        B, H, W = mask.shape
+        device = mask.device
+        weights_list = []
+        import cv2
+        for b in range(B):
+            m = mask[b].cpu().numpy().astype(np.uint8)
+            if m.sum() == 0:
+                weights_list.append(torch.full((H, W), self.background_weight, dtype=torch.float32))
+                continue
+            num_labels, labels = cv2.connectedComponents(m, connectivity=self.connectivity)
+            if num_labels <= 1:
+                weights_list.append(torch.full((H, W), self.background_weight, dtype=torch.float32))
+                continue
+            areas = np.bincount(labels.flatten()).astype(np.float32)
+            areas[0] = np.inf  # 背景
+            area_map = areas[labels]
+            inv_area = 1.0 / np.maximum(area_map, 1.0)
+            inv_area[~np.isfinite(inv_area)] = 0.0
+            if (inv_area > 0).any():
+                inv_area /= inv_area.max()
+            weights = self.weight_min + (self.weight_max - self.weight_min) * (inv_area ** self.area_gamma)
+            weights[labels == 0] = self.background_weight
+            weights_list.append(torch.from_numpy(weights.astype(np.float32)))
+        weights_tensor = torch.stack(weights_list, dim=0).unsqueeze(1).to(device)
+        return weights_tensor
