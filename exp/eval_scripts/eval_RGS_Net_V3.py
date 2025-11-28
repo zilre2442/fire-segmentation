@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import argparse
 from typing import Optional, Dict, List, Tuple
@@ -11,6 +12,10 @@ from tqdm import tqdm
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from dataset import LandsatFireDataset
 from models.RGS_Net_V3 import RGSNetV3
@@ -26,9 +31,9 @@ if _is_preinit_main():
     print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'}")
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DATA_ROOT = "data/splits_land8fire"
-ALGORITHM = "Land8Fire"
-SAVE_DIR = "output/RGS_Net_V3/Land8Fire_202511071056"
+DATA_ROOT = 'data/splits_activefire'
+ALGORITHM = 'voting'
+SAVE_DIR = "output/RGS_Net_V3/voting_202511251813"
 BANDS = (7, 6, 5)
 
 SAMPLE_DIR = os.path.join(SAVE_DIR, "pred_samples")
@@ -36,7 +41,7 @@ SAMPLE_DIR = os.path.join(SAVE_DIR, "pred_samples")
 # 使用示例:
 # 1) 分布式评估 (torchrun 自动设置分布式环境变量):
 #
-#    CUDA_VISIBLE_DEVICES=1 torchrun --nproc_per_node=1 exp/eval_scripts/eval_RGS_Net_V3.py --dist --batch-size 64 --save-dir output/RGS_Net_V3/voting_date
+#    CUDA_VISIBLE_DEVICES=1 torchrun --nproc_per_node=1 exp/eval_scripts/eval_RGS_Net_V3.py --dist --batch-size 32 --save-dir output/RGS_Net_V3/voting_202511251813
 #
 # 2) 单卡评估（手动设置环境变量）:
 #
@@ -51,7 +56,7 @@ SAMPLE_DIR = os.path.join(SAVE_DIR, "pred_samples")
 def parse_args():
     parser = argparse.ArgumentParser(description="Distributed evaluation for RGSNetV3")
     parser.add_argument("--dist", action="store_true", help="启用分布式评估")
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--bands", type=int, nargs=3, default=BANDS, help="选择用于评估的三个波段索引")
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR)

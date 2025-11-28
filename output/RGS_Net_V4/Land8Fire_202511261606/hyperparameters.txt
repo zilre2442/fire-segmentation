@@ -1,0 +1,40 @@
+===== RGS-Net V4 Hyperparameters =====
+time: 2025-11-26 16:06:17
+algo: Land8Fire
+data_root: data/splits_land8fire
+bands: [7, 6, 5]
+epochs: 80
+batch_size: 16
+lr: 0.0003
+base_filters: 64
+stage1: 20 stage2: 40
+aux_weights: 0-<20:0.2 | 20-<40:0.6 | >= 40:1.0
+dist_enabled: True world_size: 5
+
+Model Info:
+total_params: 66977923
+trainable_params: 66977923
+rec_weight: 1.0000
+
+[Losses]
+[Segmentation Loss]
+Criterion: SpatialFocalTverskyLoss
+    alpha_tversky: 0.4
+    beta_tversky: 0.6
+    gamma_focal: 1.6
+    focal_alpha: 0.85
+    lambda_focal: 0.4
+    lambda_tversky: 0.6
+    weight_min: 10.0
+    weight_max: 100.0
+    area_gamma: 0.75
+    background_weight: 0.1
+    connectivity: 8
+    smooth: 1e-06
+    eps: 1e-06
+[Reconstruction Loss]
+  name: L1Loss
+  reduction: mean
+  target: 1 - mask (background)
+  pred: sigmoid(rec_logits)
+=======================================

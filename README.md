@@ -125,6 +125,30 @@ CUDA_VISIBLE_DEVICES=1 python3 exp/eval_scripts/multi_eval_RGS_Net_V3.py \
 - 文本对比报告：`evaluation_comparison.txt`（按 F1 排序）
 - JSON 报告：`evaluation_results.json`
 
+### ActiveFire UNet Baseline 基线
+复现自 `activefire-main` 项目 Keras UNet (64f 两卷积/层) 的 PyTorch 版本，提供最简单单分支对照：
+
+训练示例（2 GPU）：
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 exp/train_scripts/train_activefire_baseline_unet.py \
+  --algorithm voting --epochs 50 --batch-size 16 --lr 1e-3 --base-filters 64 --loss bce
+```
+
+单卡调试：
+```bash
+RANK=0 WORLD_SIZE=1 LOCAL_RANK=0 python3 exp/train_scripts/train_activefire_baseline_unet.py --epochs 2 --batch-size 4
+```
+
+评估：
+```bash
+python3 exp/eval_scripts/eval_activefire_baseline_unet.py \
+  --algorithm voting \
+  --weights output/ActiveFireBaseline/voting_YYYYMMDDHHMM/weights/model_best.pth \
+  --threshold 0.5
+```
+
+文档：`docs/baseline_activefire_UNet_说明.md`
+
 ## 配置与可调参数小抄
 损失（参见 `loss.py` 与训练脚本注入参数）：
 - 分割分支：SpatialFocalLoss（`SEG_*` 参数）

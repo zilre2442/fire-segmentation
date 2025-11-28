@@ -8,7 +8,7 @@ class UNet(nn.Module):
         self,
         n_channels=3,
         n_classes=1,
-        n_filters=16,
+        n_filters=64,
         dropout=0.1,
         batchnorm=True,
     ):

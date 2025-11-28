@@ -13,8 +13,8 @@ class FocalTverskyLoss(nn.Module):
     原版本错误地对已经 sigmoid 的概率使用 binary_cross_entropy_with_logits。
     这里保持接口不变：输入 pred 为 logits，内部再 sigmoid 得概率。
     """
-    def __init__(self, alpha=0.6, beta=0.4, gamma=1.6, focal_alpha=0.85,
-                 lambda_focal=0.3, lambda_tversky=0.7, smooth=1e-6):
+    def __init__(self, alpha=0.64, beta=0.6, gamma=1.6, focal_alpha=0.85,
+                 lambda_focal=0.4, lambda_tversky=0.6, smooth=1e-6):
         super().__init__()
         self.alpha = alpha
         self.beta = beta
@@ -45,77 +45,74 @@ class FocalTverskyLoss(nn.Module):
         tversky_loss = 1 - tversky
         return self.lambda_focal * focal_loss + self.lambda_tversky * tversky_loss
 
-class FocalOHEMLoss(nn.Module):
-    def __init__(self, gamma=2.0, alpha=0.8, ohem_ratio=0.1, mode='focal'):
-        """
-        OHEM增强的损失函数(支持FocalBCE)
-        Args:
-            gamma: Focal Loss参数
-            alpha: 正样本权重(Focal)
-            ohem_ratio: 选取的困难样本比例(0 - 1)
-            mode: 'focal' 或 'bce'
-        
-        Example:
-            >>> # 版本1 Focal Loss + OHEM (适合极稀疏场景)
-            >>> criterion_ohem_focal = OHEM_FocalLoss(
-            ...     gamma=2.0,
-            ...     alpha=0.9,
-            ...     ohem_ratio=0.15,  # 仅用15%最困难像素
-            ...     mode='focal'
-            ... )
-            >>> 
-            >>> # 版本2 标准BCE + OHEM (计算更轻量)
-            >>> criterion_ohem_bce = OHEM_FocalLoss(
-            ...     ohem_ratio=0.1,
-            ...     mode='bce'
-            ... )
-        """
+class TverskyLoss(nn.Module):
+    """标准 Tversky 损失 (仅 logits 输入)。"""
+
+    def __init__(self, alpha: float = 0.64, beta: float = 0.6, smooth: float = 1e-6) -> None:
         super().__init__()
+        if not 0 <= alpha <= 1:
+            raise ValueError("alpha 范围应在 [0,1]")
+        if not 0 <= beta <= 1:
+            raise ValueError("beta 范围应在 [0,1]")
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.float()
+        probas = torch.sigmoid(pred)
+        tp = (probas * target).sum()
+        fp = (probas * (1 - target)).sum()
+        fn = ((1 - probas) * target).sum()
+        tversky = (tp + self.smooth) / (tp + self.alpha * fn + self.beta * fp + self.smooth)
+        return 1 - tversky
+
+class FocalLoss(nn.Module):
+    """标准二值 Focal Loss（基于 BCEWithLogits）。
+
+    Args:
+        gamma: 聚焦参数，控制对难样本的加权强度。
+        alpha: 正样本权重（None 表示不使用 alpha 加权）。
+        reduction: 归约方式，"mean" 或 "sum"。
+    """
+    def __init__(self, gamma: float = 1.6, alpha: Optional[float] = 0.85, reduction: str = "mean") -> None:
+        super().__init__()
+        if reduction not in {"mean", "sum"}:
+            raise ValueError("reduction 仅支持 'mean' 或 'sum'")
         self.gamma = gamma
         self.alpha = alpha
-        self.ohem_ratio = ohem_ratio
-        self.mode = mode
-        self.base_loss = nn.BCEWithLogitsLoss(reduction='none')
+        self.reduction = reduction
 
-    def forward(self, pred, target):
-        # 计算逐像素基础损失
-        pixel_loss = self.base_loss(pred, target)
-
-        # Focal Loss加权
-        if self.mode == 'focal':
-            probas = torch.sigmoid(pred)
-            p_t = torch.where(target == 1, probas, 1 - probas)
-            focal_weight = (1 - p_t) ** self.gamma
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.float()
+        bce = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+        prob = torch.sigmoid(pred)
+        p_t = torch.where(target == 1, prob, 1 - prob)
+        focal_weight = (1 - p_t).pow(self.gamma)
+        if self.alpha is not None:
             alpha_factor = torch.where(target == 1, self.alpha, 1 - self.alpha)
-            pixel_loss = focal_weight * alpha_factor * pixel_loss
-
-        # OHEM样本选择
-        n_pixels = torch.numel(pixel_loss)
-        n_select = int(n_pixels * self.ohem_ratio)
-
-        if n_select > 0:
-            flattened_loss = pixel_loss.view(-1)
-            
-            # 大图采样策略避免内存溢出
-            if n_pixels > 1e6:
-                # 随机采样50万像素或全部像素(如果不足50万)
-                n_samples = min(500000, n_pixels)
-                rand_idx = torch.randint(0, n_pixels, (n_samples,), device=flattened_loss.device)
-                sampled_loss = flattened_loss[rand_idx]
-                topk_val, _ = torch.topk(sampled_loss, n_select)
-                threshold = topk_val[-1] if topk_val.numel() > 0 else 0
-            else:
-                topk_val, _ = torch.topk(flattened_loss, n_select)
-                threshold = topk_val[-1] if topk_val.numel() > 0 else 0
-
-            # 创建掩码(仅高损失区域)
-            ohem_mask = (pixel_loss >= threshold).float()
-            selected_loss = pixel_loss * ohem_mask
-            final_loss = torch.sum(selected_loss) / (torch.sum(ohem_mask) + 1e-6)
+            loss = alpha_factor * focal_weight * bce
         else:
-            final_loss = torch.mean(pixel_loss)
+            loss = focal_weight * bce
+        if self.reduction == "sum":
+            return loss.sum()
+        return loss.mean()
 
-        return final_loss
+
+class DiceLoss(nn.Module):
+    """Dice 损失 (1 - Dice 系数)。"""
+
+    def __init__(self, smooth: float = 1e-6) -> None:
+        super().__init__()
+        self.smooth = smooth
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.float()
+        probas = torch.sigmoid(pred)
+        intersection = (probas * target).sum()
+        union = probas.sum() + target.sum()
+        dice = (2 * intersection + self.smooth) / (union + self.smooth)
+        return 1 - dice
 
 def get_criterion_info(criterion):
     """动态获取 criterion 的参数信息"""
@@ -130,11 +127,19 @@ def get_criterion_info(criterion):
         info += f"    lambda_focal: {criterion.lambda_focal}\n"
         info += f"    lambda_tversky: {criterion.lambda_tversky}\n"
         info += f"    smooth: {criterion.smooth}\n"
+    elif criterion_name == "TverskyLoss":
+        info += f"    alpha: {criterion.alpha}\n"
+        info += f"    beta: {criterion.beta}\n"
+        info += f"    smooth: {criterion.smooth}\n"
     elif criterion_name == "FocalOHEMLoss":
         info += f"    gamma: {criterion.gamma}\n"
         info += f"    alpha: {criterion.alpha}\n"
         info += f"    ohem_ratio: {criterion.ohem_ratio}\n"
         info += f"    mode: {criterion.mode}\n"
+    elif criterion_name == "FocalLoss":
+        info += f"    gamma: {criterion.gamma}\n"
+        info += f"    alpha: {criterion.alpha}\n"
+        info += f"    reduction: {criterion.reduction}\n"
     elif criterion_name == "SpatialFocalLoss":
         info += f"    gamma: {criterion.gamma}\n"
         info += f"    alpha: {criterion.alpha}\n"
@@ -149,8 +154,24 @@ def get_criterion_info(criterion):
         info += f"    weight_strategy: {criterion.weight_strategy}\n"
         info += f"    weight_update_freq: {criterion.weight_update_freq}\n"
         info += f"    eps: {criterion.eps}\n"    
+    elif criterion_name == "DiceLoss":
+        info += f"    smooth: {criterion.smooth}\n"
     elif criterion_name == "MaskedL1Loss":
         info += f"    reduction: {criterion.reduction}\n"
+        info += f"    eps: {criterion.eps}\n"
+    elif criterion_name == "SpatialFocalTverskyLoss":
+        info += f"    alpha_tversky: {criterion.alpha_tversky}\n"
+        info += f"    beta_tversky: {criterion.beta_tversky}\n"
+        info += f"    gamma_focal: {criterion.gamma_focal}\n"
+        info += f"    focal_alpha: {criterion.focal_alpha}\n"
+        info += f"    lambda_focal: {criterion.lambda_focal}\n"
+        info += f"    lambda_tversky: {criterion.lambda_tversky}\n"
+        info += f"    weight_min: {criterion.weight_min}\n"
+        info += f"    weight_max: {criterion.weight_max}\n"
+        info += f"    area_gamma: {criterion.area_gamma}\n"
+        info += f"    background_weight: {criterion.background_weight}\n"
+        info += f"    connectivity: {criterion.connectivity}\n"
+        info += f"    smooth: {criterion.smooth}\n"
         info += f"    eps: {criterion.eps}\n"
     
     else:

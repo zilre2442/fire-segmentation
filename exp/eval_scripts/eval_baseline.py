@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import argparse
 from typing import Optional
@@ -11,34 +12,38 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
 
+# Ensure project root is on sys.path so top-level modules (dataset, loss, utils, models) can be imported
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dataset import LandsatFireDataset
 from models.baseline import UNet
+
+# CUDA_VISIBLE_DEVICES=1,4,5,6,7 torchrun --nproc_per_node=5 --master_port=65530 exp/eval_scripts/eval_baseline.py --dist --bands 7 6 5 --batch-size 16 --save-dir output/baseline/voting_202511281410
 
 # ---- 预初始化阶段的主进程判定（在 DDP 尚未 init 时使用） ----
 def _is_preinit_main() -> bool:
     return os.environ.get("LOCAL_RANK", "0") == "0"
 
 
-# GPU 设置
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5"
-
 if _is_preinit_main():
     print("========== Baseline 火灾检测评估启动 ==========")
     print(f"当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'}")
 
-DATA_ROOT = "data/full"
+DATA_ROOT = "data/splits_activefire"
 ALGORITHM = "voting"  # 可选: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
-SAVE_DIR = "output/baseline/voting_202510201920"  # 指向已训练模型的目录
+SAVE_DIR = "output/baseline/voting_202511281410"  # 指向已训练模型的目录
 TH_FIRE = 0.25
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BANDS = (7, 6, 2)
+BANDS = (7, 6, 5)
 
 # --------- DDP/CLI 实用函数 ---------
 def parse_args():
     parser = argparse.ArgumentParser(description="Distributed evaluation for Baseline UNet")
     parser.add_argument("--dist", action="store_true", help="启用分布式评估 (检测到 LOCAL_RANK 也会自动启用)")
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--bands", type=int, nargs=3, default=BANDS, help="选择用于评估的三个波段索引")
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR)
@@ -112,7 +117,7 @@ param_path = os.path.join(SAVE_DIR, "weights", f"{model_name}.pth")
 if is_main_process():
     print(f"├─ 参数路径: {param_path}")
 
-model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=16)
+model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=64)
 if is_main_process():
     print(f"├─ 网络架构: {model.__class__.__name__}")
 try:

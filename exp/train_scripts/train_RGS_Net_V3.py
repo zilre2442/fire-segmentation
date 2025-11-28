@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 from typing import Tuple
 import logging
@@ -15,9 +16,14 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
+# Ensure project root is on sys.path so top-level modules (dataset, loss, utils, models) can be imported
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dataset import LandsatFireDataset
 from models.RGS_Net_V3 import RGSNetV3
-from loss import FocalTverskyLoss, SpatialFocalLoss, get_criterion_info
+from loss import FocalTverskyLoss, SpatialFocalLoss, SpatialFocalTverskyLoss, get_criterion_info
 from utils import adaptive_crop
 
 # 使用示例:
@@ -28,7 +34,7 @@ from utils import adaptive_crop
 #
 #    或者显式设置可见 GPU（例如使用 GPU 1,2）:
 #
-#    CUDA_VISIBLE_DEVICES=1,2 torchrun --nproc_per_node=2 exp/train_scripts/train_RGS_Net_V3.py
+#    CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 exp/train_scripts/train_RGS_Net_V3.py
 #
 # 2) 单卡快速调试（需要手动设置环境变量供脚本读取）:
 #
@@ -46,12 +52,12 @@ from utils import adaptive_crop
 
 # DATA_ROOT = "data/splits_activefire"
 # ALGORITHM = "voting"
-DATA_ROOT = 'data/splits_land8fire'
-ALGORITHM = 'Land8Fire'
+DATA_ROOT = 'data/splits_activefire'
+ALGORITHM = 'voting'
 RUN_ID = datetime.now().strftime("%Y%m%d%H%M")
 SAVE_DIR = f"output/RGS_Net_V3/{ALGORITHM}_{RUN_ID}"
 BANDS = (7, 6, 5)
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 NUM_WORKERS = 4
 SHUFFLE_TRAIN = True
 EPOCHS = 200
@@ -250,22 +256,28 @@ def train(rank: int, world_size: int) -> None:
         # 
         # 注意：已移除 weight_downsample_factor，使用原始分辨率计算连通域权重，
         #      确保对火点像素只有1～5个的小样本能够准确计算连通域面积。
-        seg_criterion = SpatialFocalLoss(
-            weight_strategy="small",
-            alpha=0.75,
-            gamma=2.0,
+        seg_criterion = SpatialFocalTverskyLoss(
+            alpha_tversky=0.6,
+            beta_tversky=0.4,
+            gamma_focal=1.6,
+            focal_alpha=0.85,
+            lambda_focal=0.3,
+            lambda_tversky=0.7,
             weight_min=1.0,
-            weight_max=4.0,
-            weight_gamma=1.5,
+            weight_max=5.0,
+            area_gamma=0.75,
             background_weight=1.0
         )
-        recon_criterion = SpatialFocalLoss(
-            weight_strategy="large",
-            alpha=0.25,
-            gamma=1.5,
+        recon_criterion = SpatialFocalTverskyLoss(
+            alpha_tversky=0.6,
+            beta_tversky=0.4,
+            gamma_focal=1.6,
+            focal_alpha=0.85,
+            lambda_focal=0.3,
+            lambda_tversky=0.7,
             weight_min=1.0,
-            weight_max=4.0,
-            weight_gamma=1.5,
+            weight_max=5.0,
+            area_gamma=0.75,
             background_weight=1.0
         )
         

@@ -1,0 +1,23 @@
+name: fire
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  # Core DL stack: install via pip (more reliable GPU wheels here)
+  # (Remove any existing conda CPU builds before pip install)
+
+  # Project runtime deps
+  - numpy
+  - rasterio
+  - gdal
+  - matplotlib
+  - tqdm
+  - pillow
+  - opencv
+
+  # Optional utilities
+  - pip
+  - pip:
+      - fvcore  # optional: FLOPs profiling in utils.py
+      # NOTE: Install PyTorch GPU wheels AFTER environment creation:
+      #   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121

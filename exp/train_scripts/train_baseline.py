@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 from typing import Tuple
 import logging
@@ -15,6 +16,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
+# Ensure project root is on sys.path so top-level modules (dataset, loss, utils, models) can be imported
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dataset import LandsatFireDataset
 from models.baseline import UNet
 from utils import adaptive_crop
@@ -23,18 +29,18 @@ from utils import adaptive_crop
 
 # GPU 设置：建议在外部通过 CUDA_VISIBLE_DEVICES 或 torchrun 指定可见 GPU。
 # 在脚本内硬编码可能与 torchrun 的设备映射冲突，故不在此处修改。
-# 示例：CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 /path/to/train_baseline.py
+# 示例：CUDA_VISIBLE_DEVICES=1,4,5,6,7 torchrun --nproc_per_node=5 --master_port=65530 exp/train_scripts/train_baseline.py
 
 # 全局超参数配置
-DATA_ROOT = "data/full"
+DATA_ROOT = "data/splits_activefire"
 ALGORITHM = "voting"  # 可选: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
 RUN_ID = datetime.now().strftime("%Y%m%d%H%M")
 SAVE_DIR = f"output/baseline/{ALGORITHM}_{RUN_ID}"
-BANDS = (7, 6, 2)  # 可根据需要调整波段选择
-BATCH_SIZE = 64
+BANDS = (7, 6, 5)  # 可根据需要调整波段选择
+BATCH_SIZE = 16
 NUM_WORKERS = 4
 SHUFFLE_TRAIN = True
-EPOCHS = 200
+EPOCHS = 50
 LEARNING_RATE = 3e-4
 
 VAL_INTERVAL = 1
@@ -208,7 +214,7 @@ def train(rank: int, world_size: int) -> None:
         torch.cuda.set_device(device)
         logger.info(f"Rank {rank}/{world_size} using device: {device} (local_rank={local_rank})")
 
-        model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=16).to(device)
+        model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=64).to(device)
         ddp_model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
 
         criterion = torch.nn.BCELoss()

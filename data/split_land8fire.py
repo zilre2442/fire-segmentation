@@ -35,9 +35,9 @@ MASK_DIR = os.path.join(DATASET_ROOT, "masks", "patches")
 OUTPUT_DIR = "data/splits_land8fire"
 
 # 划分比例
-TRAIN_RATIO = 0.70
-VAL_RATIO = 0.15
-TEST_RATIO = 0.15
+TRAIN_RATIO = 0.50
+VAL_RATIO = 0.10
+TEST_RATIO = 0.40
 
 # 随机种子（保证可重复性）
 RANDOM_SEED = 42
