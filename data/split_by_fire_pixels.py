@@ -24,6 +24,7 @@
 import os
 import sys
 import argparse
+import random
 from typing import Dict, List, Tuple
 from tqdm import tqdm
 
@@ -221,6 +222,147 @@ def process_land8fire_dataset(
     return results
 
 
+def process_manual_dataset(
+    splits_dir: str = "data/splits_manual"
+) -> Dict[str, Dict[str, int]]:
+    """处理 Manual Annotations 数据集的 train/val/test 分割"""
+    results = {}
+    
+    # 创建输出根目录
+    output_root = os.path.join(splits_dir, "by_fire_pixels")
+    
+    for split in ["train", "val", "test"]:
+        csv_path = os.path.join(splits_dir, f"manual_{split}.csv")
+        dataset_name = f"manual_{split}"
+        
+        # 创建该split的输出目录
+        split_output_dir = os.path.join(output_root, split)
+        
+        category_counts = split_csv_by_fire_pixels(
+            csv_path=csv_path,
+            output_dir=split_output_dir,
+            dataset_name=dataset_name
+        )
+        
+        if category_counts:
+            results[dataset_name] = category_counts
+    
+    return results
+
+
+def merge_and_split_custom(
+    activefire_dir: str,
+    land8fire_dir: str,
+    output_dir: str,
+    activefire_algo: str = "voting"
+):
+    """
+    合并 ActiveFire 和 Land8Fire 数据集，并按火点像素数量划分
+    规则: <100 (small) vs >=100 (large)
+    比例: 4:1:5
+    """
+    print(f"\n{'='*70}")
+    print("执行合并与自定义划分 (ActiveFire + Land8Fire)")
+    print(f"划分规则: <100 像素 (small) vs >=100 像素 (large)")
+    print(f"划分比例: Train:Val:Test = 4:1:5")
+    print(f"{'='*70}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    
+    all_samples = []
+    
+    # Helper to read CSV
+    def read_samples(csv_path):
+        samples = []
+        if not os.path.exists(csv_path):
+            return samples
+        df = pd.read_csv(csv_path)
+        for _, row in df.iterrows():
+            if 'mask' in df.columns:
+                mask = row['mask']
+                image = row.get('image', row.iloc[0] if len(row) > 0 else None)
+            elif len(df.columns) >= 2:
+                image = row.iloc[0]
+                mask = row.iloc[1]
+            else:
+                continue
+            samples.append({'image': image, 'mask': mask})
+        return samples
+
+    # Load ActiveFire
+    print("正在加载 ActiveFire 数据...")
+    for split in ["train", "val", "test"]:
+        path = os.path.join(activefire_dir, f"{activefire_algo}_{split}.csv")
+        all_samples.extend(read_samples(path))
+        
+    # Load Land8Fire
+    print("正在加载 Land8Fire 数据...")
+    for split in ["train", "val", "test"]:
+        path = os.path.join(land8fire_dir, f"Land8Fire_{split}.csv")
+        all_samples.extend(read_samples(path))
+        
+    print(f"总样本数 (合并后): {len(all_samples)}")
+    
+    # Categorize
+    small_samples = []
+    large_samples = []
+    skipped = 0
+    
+    print("正在分析火点像素数量...")
+    for sample in tqdm(all_samples):
+        mask_path = sample['mask']
+        if not os.path.exists(mask_path):
+            skipped += 1
+            continue
+            
+        try:
+            with rasterio.open(mask_path) as src:
+                mask = src.read(1)
+                count = int(np.sum(mask > 0))
+                
+                if count == 0:
+                    continue # Skip no fire
+                elif count < 100:
+                    small_samples.append(sample)
+                else:
+                    large_samples.append(sample)
+        except:
+            skipped += 1
+            
+    print(f"分类结果:")
+    print(f"  Small (<100): {len(small_samples)}")
+    print(f"  Large (>=100): {len(large_samples)}")
+    
+    # Split and Save
+    def save_split(samples, prefix):
+        random.shuffle(samples)
+        total = len(samples)
+        n_train = int(total * 0.4)
+        n_val = int(total * 0.1)
+        # n_test = rest
+        
+        train_set = samples[:n_train]
+        val_set = samples[n_train:n_train+n_val]
+        test_set = samples[n_train+n_val:]
+        
+        # Save
+        pd.DataFrame(train_set).to_csv(os.path.join(output_dir, f"{prefix}_train.csv"), index=False)
+        pd.DataFrame(val_set).to_csv(os.path.join(output_dir, f"{prefix}_val.csv"), index=False)
+        pd.DataFrame(test_set).to_csv(os.path.join(output_dir, f"{prefix}_test.csv"), index=False)
+        
+        print(f"  {prefix} -> Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
+
+    save_split(small_samples, "small")
+    save_split(large_samples, "large")
+    
+    print(f"\n结果已保存至: {output_dir}")
+    print(f"使用方法示例:")
+    print(f"  python exp/train_scripts/train_baseline.py --data-root {output_dir} --algo small")
+    print(f"  python exp/train_scripts/train_baseline.py --data-root {output_dir} --algo large")
+    
+    return {} # Return empty dict to satisfy main loop structure if needed, or just exit
+
+
 def print_summary(all_results: Dict[str, Dict[str, int]]):
     """打印汇总统计"""
     print(f"\n{'='*70}")
@@ -247,9 +389,9 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        choices=["activefire", "land8fire", "all"],
+        choices=["activefire", "land8fire", "manual", "all", "merge_custom"],
         default="all",
-        help="选择要处理的数据集"
+        help="选择要处理的数据集。'merge_custom' 将合并 ActiveFire 和 Land8Fire 并按 <100 和 >=100 划分。"
     )
     
     parser.add_argument(
@@ -273,6 +415,20 @@ def main():
         default="data/splits_land8fire",
         help="Land8Fire数据集CSV所在目录"
     )
+
+    parser.add_argument(
+        "--manual-dir",
+        type=str,
+        default="data/splits_manual",
+        help="Manual Annotations数据集CSV所在目录"
+    )
+
+    parser.add_argument(
+        "--merge-output-dir",
+        type=str,
+        default="data/splits_merged_pixels",
+        help="合并划分后的输出目录"
+    )
     
     args = parser.parse_args()
     
@@ -289,6 +445,15 @@ def main():
     all_results = {}
     
     # 处理数据集
+    if args.dataset == "merge_custom":
+        merge_and_split_custom(
+            args.activefire_dir,
+            args.land8fire_dir,
+            args.merge_output_dir,
+            args.algorithm
+        )
+        return
+
     if args.dataset in ["activefire", "all"]:
         print(f"\n{'#'*70}")
         print(f"# 处理 ActiveFire 数据集 (算法: {args.algorithm})")
@@ -305,6 +470,13 @@ def main():
         print(f"{'#'*70}")
         land8fire_results = process_land8fire_dataset(args.land8fire_dir)
         all_results.update(land8fire_results)
+
+    if args.dataset in ["manual", "all"]:
+        print(f"\n{'#'*70}")
+        print(f"# 处理 Manual Annotations 数据集")
+        print(f"{'#'*70}")
+        manual_results = process_manual_dataset(args.manual_dir)
+        all_results.update(manual_results)
     
     # 打印汇总
     if all_results:

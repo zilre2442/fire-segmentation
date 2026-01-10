@@ -82,7 +82,7 @@ class LandsatFireDataset(Dataset):
 # 使用示例
 if __name__ == "__main__":
     algorithms = ('Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting')
-    full_data_dir = "data/full"
+    full_data_dir = "data/splits_activefire"
 
     for algorithm in algorithms:
         # 示例用法

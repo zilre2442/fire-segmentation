@@ -8,9 +8,9 @@ Land8Fire 数据集划分脚本
 3. 生成 CSV 文件保存到 data/splits_land8fire 目录
 
 划分比例：
-- 训练集: 70%
-- 验证集: 15%
-- 测试集: 15%
+- 训练集: 40%
+- 验证集: 10%
+- 测试集: 50%
 
 使用方法:
     python data/split_land8fire.py
@@ -35,9 +35,9 @@ MASK_DIR = os.path.join(DATASET_ROOT, "masks", "patches")
 OUTPUT_DIR = "data/splits_land8fire"
 
 # 划分比例
-TRAIN_RATIO = 0.50
+TRAIN_RATIO = 0.40
 VAL_RATIO = 0.10
-TEST_RATIO = 0.40
+TEST_RATIO = 0.50
 
 # 随机种子（保证可重复性）
 RANDOM_SEED = 42

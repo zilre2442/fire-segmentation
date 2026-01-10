@@ -1,4 +1,0 @@
-dataset,none (0)_count,none (0)_percent,very_few (1-10)_count,very_few (1-10)_percent,few (10-100)_count,few (10-100)_percent,many (100-1000)_count,many (100-1000)_percent,very_many (>1000)_count,very_many (>1000)_percent,total
-ActiveFire-voting-train,0,0.00%,28600,85.31%,4494,13.41%,425,1.27%,4,0.01%,33523
-ActiveFire-voting-val,0,0.00%,7172,85.58%,1120,13.37%,86,1.03%,2,0.02%,8380
-ActiveFire-voting-test,0,0.00%,35742,85.30%,5577,13.31%,574,1.37%,9,0.02%,41902

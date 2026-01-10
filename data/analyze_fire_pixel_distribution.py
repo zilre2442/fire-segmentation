@@ -16,8 +16,8 @@
 使用示例:
     python data/analyze_fire_pixel_distribution.py
     python data/analyze_fire_pixel_distribution.py --dataset activefire --algorithm voting
-    python data/analyze_fire_pixel_distribution.py --dataset land8fire
-    python data/analyze_fire_pixel_distribution.py --save-csv results.csv
+    python data/analyze_fire_pixel_distribution.py --dataset manual
+    python data/analyze_fire_pixel_distribution.py --dataset all --save-csv data/fire_pixel_distribution.csv
 """
 
 import os
@@ -180,6 +180,22 @@ def analyze_land8fire_dataset(splits_dir: str = "data/splits_land8fire"):
     return results
 
 
+def analyze_manual_dataset(splits_dir: str = "data/splits_manual"):
+    """分析 Manual Annotations 数据集的 train/val/test 分割"""
+    results = {}
+    
+    for split in ["train", "val", "test"]:
+        csv_path = os.path.join(splits_dir, f"manual_{split}.csv")
+        dataset_name = f"Manual-{split}"
+        
+        category_counts = analyze_csv_dataset(csv_path, dataset_name)
+        if category_counts:
+            results[dataset_name] = category_counts
+            print_category_stats(category_counts, dataset_name)
+    
+    return results
+
+
 def save_results_to_csv(all_results: Dict[str, Dict[str, int]], output_path: str):
     """将统计结果保存为CSV文件"""
     # 准备数据
@@ -215,7 +231,7 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        choices=["activefire", "land8fire", "all"],
+        choices=["activefire", "land8fire", "manual", "all"],
         default="all",
         help="选择要分析的数据集"
     )
@@ -240,6 +256,13 @@ def main():
         type=str,
         default="data/splits_land8fire",
         help="Land8Fire数据集CSV所在目录"
+    )
+
+    parser.add_argument(
+        "--manual-dir",
+        type=str,
+        default="data/splits_manual",
+        help="Manual Annotations数据集CSV所在目录"
     )
     
     parser.add_argument(
@@ -278,6 +301,13 @@ def main():
         print(f"{'#'*60}")
         land8fire_results = analyze_land8fire_dataset(args.land8fire_dir)
         all_results.update(land8fire_results)
+
+    if args.dataset in ["manual", "all"]:
+        print(f"\n{'#'*60}")
+        print(f"# 分析 Manual Annotations 数据集")
+        print(f"{'#'*60}")
+        manual_results = analyze_manual_dataset(args.manual_dir)
+        all_results.update(manual_results)
     
     # 保存结果到CSV
     if all_results:
@@ -288,6 +318,8 @@ def main():
                 csv_filename = f"fire_pixel_distribution_activefire_{args.algorithm}.csv"
             elif args.dataset == "land8fire":
                 csv_filename = "fire_pixel_distribution_land8fire.csv"
+            elif args.dataset == "manual":
+                csv_filename = "fire_pixel_distribution_manual.csv"
             else:  # all
                 csv_filename = "fire_pixel_distribution_all.csv"
             output_path = csv_filename

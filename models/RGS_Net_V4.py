@@ -319,10 +319,69 @@ class RGSNetV4(nn.Module):
         return seg_logits, rec_logits, fused_logits
 
 
-__all__ = ["RGSNetV4", "TransformerBackgroundBlock"]
+class RGSNetV4StageFusion(RGSNetV4):
+    """RGS-Net V4 variant with per-stage fusion between segmentation and reconstruction decoders."""
+
+    def __init__(
+        self,
+        n_channels: int = 3,
+        n_classes: int = 1,
+        base_filters: int = 64,
+        dropout: float = 0.1,
+        batchnorm: bool = True,
+        fuse_init: float = 1.0,
+    ) -> None:
+        super().__init__(
+            n_channels=n_channels,
+            n_classes=n_classes,
+            base_filters=base_filters,
+            dropout=dropout,
+            batchnorm=batchnorm,
+        )
+        self.mid_fuse_weights = nn.ParameterList(
+            [nn.Parameter(torch.tensor(fuse_init)) for _ in range(3)]
+        )
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        feats = self._encode(x)
+        t_feats = [bg(f) for f, bg in zip(feats, self.bg_transforms)]
+
+        seg_blocks = [self.up6_seg, self.up7_seg, self.up8_seg, self.up9_seg]
+        rec_blocks = [self.up6_rec, self.up7_rec, self.up8_rec, self.up9_rec]
+        seg_skips = [feats[3], feats[2], feats[1], feats[0]]
+        rec_skips = [t_feats[3], t_feats[2], t_feats[1], t_feats[0]]
+
+        seg_state = feats[-1]
+        rec_state = t_feats[-1]
+
+        for idx, (seg_block, rec_block, seg_skip, rec_skip) in enumerate(
+            zip(seg_blocks, rec_blocks, seg_skips, rec_skips)
+        ):
+            seg_state = seg_block(seg_state, seg_skip)
+            rec_state = rec_block(rec_state, rec_skip)
+            if idx < len(self.mid_fuse_weights):
+                seg_state = seg_state - self.mid_fuse_weights[idx] * rec_state
+
+        seg_logits = self.seg_out(seg_state)
+        rec_logits = self.rec_out(rec_state)
+        rec_for_fuse = rec_logits if rec_logits.shape[1] == 1 else rec_logits.mean(dim=1, keepdim=True)
+        fused_logits = seg_logits - self.rec_weight * rec_for_fuse
+        return seg_logits, rec_logits, fused_logits
+
+
+__all__ = ["RGSNetV4", "TransformerBackgroundBlock", "RGSNetV4StageFusion"]
 
 if __name__ == "__main__":
-    model = RGSNetV4(n_channels=3, base_filters=32)
-    x = torch.randn(2, 3, 256, 256)
-    s, r, f = model(x)
-    print("seg", s.shape, "rec", r.shape, "fused", f.shape, "weight", model.rec_weight.item())
+    import os
+    import sys
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    from utils import analyze_model_performance
+    
+    model = RGSNetV4(n_channels=3, n_classes=1, base_filters=64, dropout=0.1, batchnorm=True)
+    analyze_model_performance(model, 
+                              (16, 3, 256, 256),
+                              device='cuda' if torch.cuda.is_available() else 'cpu',
+                              gpu_id=5)
+    

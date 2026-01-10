@@ -5,11 +5,11 @@
 - 默认从 `--save-dir/weights/model_best.pth` 加载参数；也支持 `--model-path`
 - 支持选择输出类型进行阈值化评估: fused / rec / seg（仅用于指标与主对比图）
 - 指标：Precision / Recall / F1 / IoU(Fire/Back) / mIoU
-- 保存样例：pred_samples (RGB/GT/Seg/Rec/Fused) 与整体可视化；附加按火点数量类别输出
+- 保存样例：pred_samples (RGB/GT/Seg/Rec/Fused) 与整体可视化；可选附加按火点数量类别输出（启用 `--extra-output`）
 
 示例：
-CUDA_VISIBLE_DEVICES=1,4,5,6,7 torchrun --nproc_per_node=5 --master_port=65530 exp/eval_scripts/eval_RGS_Net_V4_no_transformer.py --dist --data-root data/splits_activefire --algo voting --bands 7 6 5 --output-type fused --batch-size 16 --save-dir output/RGS_Net_V4_noTrans/voting_202511271328
-python exp/eval_scripts/eval_RGS_Net_V4_no_transformer.py --model-path output/RGS_Net_V4_noTrans/Land8Fire_202511261606/weights/model_best.pth --algo voting --bands 7 6 5 --output-type fused --threshold 0.5 --save-dir output/RGS_Net_V4_noTrans/Land8Fire_202511261606
+CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 --master_port=65530 exp/eval_scripts/eval_RGS_Net_V4_no_transformer.py --dist --data-root data/splits_activefire --algo voting --threshold 0.5 --save-dir output/RGS_Net_V4_noTrans/voting_202512052146
+CUDA_VISIBLE_DEVICES=4 python exp/eval_scripts/eval_RGS_Net_V4_no_transformer.py --data-root data/splits_activefire --algo voting --bands 7 6 5 --output-type fused --threshold 0.5 --save-dir output/RGS_Net_V4_noTrans/voting_202512052146
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from models.RGS_Net_V4_no_transformer import RGSNetV4NoTransformer
 
 
 def _is_preinit_main() -> bool:
-    return os.environ.get("LOCAL_RANK", "0") == "0"
+    return os.environ.get("RANK", "0") == "0"
 
 
 def parse_args():
@@ -57,6 +57,7 @@ def parse_args():
     p.add_argument("--cat-thresholds", type=int, nargs=3, default=(10, 100, 1000), metavar=("THR1","THR2","THR3"))
     p.add_argument("--samples-per-cat", type=int, default=5, help="每个类别选择的样例数量")
     p.add_argument("--samples", type=int, default=5, help="主可视化中保存的样例数量")
+    p.add_argument("--extra-output", action="store_true", help="启用附加输出：按GT火点像素数进行类别样例选择与标注")
     return p.parse_args()
 
 def get_test_csv(root: str, algo: str, fire_category: str = None) -> str:
@@ -340,12 +341,13 @@ def main():
         print(f"示例输出已保存至: {SAMPLE_DIR}")
         print(f"可视化样例已保存: {vis_path}")
 
-        # 附加输出：基于GT火点像素数的类别样例选择与标注
-        print("\n[附加输出] 基于火点数的类别样例选择与标注")
-        thr1, thr2, thr3 = args.cat_thresholds
-        samples_per_cat = max(1, args.samples_per_cat)
-        CATEGORY_DIR = os.path.join(SAVE_DIR, "category_samples")
-        os.makedirs(CATEGORY_DIR, exist_ok=True)
+        # 附加输出：基于GT火点像素数的类别样例选择与标注（可选）
+        if args.extra_output:
+            print("\n[附加输出] 基于火点数的类别样例选择与标注")
+            thr1, thr2, thr3 = args.cat_thresholds
+            samples_per_cat = max(1, args.samples_per_cat)
+            CATEGORY_DIR = os.path.join(SAVE_DIR, "category_samples")
+            os.makedirs(CATEGORY_DIR, exist_ok=True)
 
         def categorize(count: int) -> str:
             if count == 0:
@@ -358,77 +360,77 @@ def main():
                 return "many"
             return "very_many"
 
-        full_loader = DataLoader(
-            loader.dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=loader.num_workers,
-            pin_memory=pin_mem,
-        )
+            full_loader = DataLoader(
+                loader.dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=loader.num_workers,
+                pin_memory=pin_mem,
+            )
 
-        selected: Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]]] = {
-            "none": [], "very_few": [], "few": [], "many": [], "very_many": []
-        }
+            selected: Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]]] = {
+                "none": [], "very_few": [], "few": [], "many": [], "very_many": []
+            }
 
-        with torch.inference_mode():
-            for images_b, masks_b in __import__('tqdm').tqdm(full_loader, desc="挑选样例"):
-                images_b = images_b.to(device, non_blocking=True)
-                masks_b = (masks_b > 0).to(device, non_blocking=True)
+            with torch.inference_mode():
+                for images_b, masks_b in __import__('tqdm').tqdm(full_loader, desc="挑选样例"):
+                    images_b = images_b.to(device, non_blocking=True)
+                    masks_b = (masks_b > 0).to(device, non_blocking=True)
 
-                seg_b, rec_b, fused_b = eval_model(images_b)
-                preds_b = (torch.sigmoid(fused_b) >= args.threshold).float()
+                    seg_b, rec_b, fused_b = eval_model(images_b)
+                    preds_b = (torch.sigmoid(fused_b) >= args.threshold).float()
 
-                for i in range(images_b.size(0)):
-                    gt = masks_b[i]
-                    pr = preds_b[i]
-                    gt_cnt = int(gt.sum().item())
-                    pr_cnt = int(pr.sum().item())
-                    cat = categorize(gt_cnt)
+                    for i in range(images_b.size(0)):
+                        gt = masks_b[i]
+                        pr = preds_b[i]
+                        gt_cnt = int(gt.sum().item())
+                        pr_cnt = int(pr.sum().item())
+                        cat = categorize(gt_cnt)
 
-                    if len(selected[cat]) < samples_per_cat:
-                        img_np = images_b[i].detach().cpu().numpy()
-                        gt_np = gt.detach().cpu().numpy()
-                        pr_np = pr.detach().cpu().numpy()
-                        selected[cat].append((img_np, gt_np, pr_np, gt_cnt, pr_cnt))
+                        if len(selected[cat]) < samples_per_cat:
+                            img_np = images_b[i].detach().cpu().numpy()
+                            gt_np = gt.detach().cpu().numpy()
+                            pr_np = pr.detach().cpu().numpy()
+                            selected[cat].append((img_np, gt_np, pr_np, gt_cnt, pr_cnt))
 
-                if all(len(v) >= samples_per_cat for v in selected.values()):
-                    break
+                    if all(len(v) >= samples_per_cat for v in selected.values()):
+                        break
 
-        def plot_category(cat_name: str, items: List[Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]]):
-            if not items:
-                return
-            rows = len(items)
-            cols = 3
-            fig, axes = plt.subplots(rows, cols, figsize=(12, 4 * rows))
-            if rows == 1:
-                axes = np.expand_dims(axes, axis=0)
-            for r, (img_np, gt_np, pr_np, gt_cnt, pr_cnt) in enumerate(items):
-                rgb = img_np[:3]
-                rgb_img = (rgb * 255).clip(0, 255).astype(np.uint8)
-                rgb_img = np.transpose(rgb_img, (1, 2, 0))
+            def plot_category(cat_name: str, items: List[Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]]):
+                if not items:
+                    return
+                rows = len(items)
+                cols = 3
+                fig, axes = plt.subplots(rows, cols, figsize=(12, 4 * rows))
+                if rows == 1:
+                    axes = np.expand_dims(axes, axis=0)
+                for r, (img_np, gt_np, pr_np, gt_cnt, pr_cnt) in enumerate(items):
+                    rgb = img_np[:3]
+                    rgb_img = (rgb * 255).clip(0, 255).astype(np.uint8)
+                    rgb_img = np.transpose(rgb_img, (1, 2, 0))
 
-                axes[r, 0].imshow(rgb_img)
-                axes[r, 0].set_title(f"Input (RGB)")
-                axes[r, 0].axis("off")
+                    axes[r, 0].imshow(rgb_img)
+                    axes[r, 0].set_title(f"Input (RGB)")
+                    axes[r, 0].axis("off")
 
-                gt_show = gt_np[0] if gt_np.ndim == 3 else gt_np
-                axes[r, 1].imshow(gt_show, cmap="gray")
-                axes[r, 1].set_title(f"GT | fire px: {gt_cnt}")
-                axes[r, 1].axis("off")
+                    gt_show = gt_np[0] if gt_np.ndim == 3 else gt_np
+                    axes[r, 1].imshow(gt_show, cmap="gray")
+                    axes[r, 1].set_title(f"GT | fire px: {gt_cnt}")
+                    axes[r, 1].axis("off")
 
-                pr_show = pr_np[0] if pr_np.ndim == 3 else pr_np
-                axes[r, 2].imshow(pr_show, cmap="gray")
-                axes[r, 2].set_title(f"Pred | fire px: {pr_cnt}")
-                axes[r, 2].axis("off")
+                    pr_show = pr_np[0] if pr_np.ndim == 3 else pr_np
+                    axes[r, 2].imshow(pr_show, cmap="gray")
+                    axes[r, 2].set_title(f"Pred | fire px: {pr_cnt}")
+                    axes[r, 2].axis("off")
 
-            plt.tight_layout()
-            out_path = os.path.join(CATEGORY_DIR, f"cat_{cat_name}_thr_{thr1}-{thr2}-{thr3}_k{samples_per_cat}.png")
-            plt.savefig(out_path, dpi=200, bbox_inches="tight")
-            plt.close(fig)
-            print(f"类别[{cat_name}]样例对比已保存: {out_path}")
+                plt.tight_layout()
+                out_path = os.path.join(CATEGORY_DIR, f"cat_{cat_name}_thr_{thr1}-{thr2}-{thr3}_k{samples_per_cat}.png")
+                plt.savefig(out_path, dpi=200, bbox_inches="tight")
+                plt.close(fig)
+                print(f"类别[{cat_name}]样例对比已保存: {out_path}")
 
-        for cat_name in ["very_many", "many", "few", "very_few", "none"]:
-            plot_category(cat_name, selected[cat_name])
+            for cat_name in ["very_many", "many", "few", "very_few", "none"]:
+                plot_category(cat_name, selected[cat_name])
 
     cleanup_distributed()
 

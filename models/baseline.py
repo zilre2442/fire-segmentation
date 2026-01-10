@@ -1,3 +1,4 @@
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -78,9 +79,8 @@ class UNet(nn.Module):
         self.drop9 = nn.Dropout(dropout)
         self.dec9 = self._double_conv(n_filters * 2, n_filters, batchnorm)
 
-        # 输出层
+        # 输出层 (不再包含 Sigmoid；返回 logits 以配合 BCEWithLogitsLoss)
         self.outc = nn.Conv2d(n_filters, n_classes, kernel_size=1)
-        self.out_activation = nn.Sigmoid()
 
     def _double_conv(self, in_channels, out_channels, batchnorm):
         """双卷积块: Conv -> BatchNorm -> ReLU"""
@@ -132,23 +132,27 @@ class UNet(nn.Module):
         d9 = self.dec9(d9)
 
         outputs = self.outc(d9)
-        return self.out_activation(outputs)
+        return outputs
 
 
 if __name__ == "__main__":
+    import os
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
     from utils import analyze_model_performance
 
     # 示例1：分析CPU性能
     analyze_model_performance(
-        model=UNet(n_channels=3, n_filters=16),
+        model=UNet(n_channels=3, n_filters=64),
         input_shape=(1, 3, 256, 256),
         device='cpu'
     )
     
     # 示例2：分析指定GPU（如GPU 1）的性能
     analyze_model_performance(
-        model=UNet(n_channels=3, n_filters=16),
-        input_shape=(64, 3, 256, 256),
+        model=UNet(n_channels=3, n_filters=64),
+        input_shape=(16, 3, 256, 256),
         device='cuda',
-        gpu_id=0
+        gpu_id=0 
     )
