@@ -1,0 +1,9 @@
+===== FPS-U2Net Evaluation =====
+timestamp: 2025-12-25 17:48:49
+threshold: 0.5
+precision: 0.7154
+recall: 0.9625
+f1: 0.8207
+fire_iou: 0.6960
+back_iou: 0.9999
+miou: 0.8480

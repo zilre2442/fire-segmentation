@@ -1,0 +1,18 @@
+===== Baseline UNet Hyperparameters =====
+time: 2025-12-05 14:46:49
+algo: voting
+data_root: data/splits_activefire
+bands: (7, 6, 2)
+epochs: 50
+batch_size: 16
+lr: 0.001
+dist_enabled: True world_size: 3
+
+Model Info:
+total_params: 34519233
+trainable_params: 34519233
+
+Loss
+  name: BCEWithLogitsLoss
+  reduction: mean
+=======================================

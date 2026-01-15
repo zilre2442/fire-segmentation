@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import argparse
 from typing import Optional
@@ -11,26 +12,33 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
 
+# Ensure project root is on sys.path so top-level modules (dataset, loss, utils, models) can be imported
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dataset import LandsatFireDataset
 from models.baseline import UNet
+
+# CUDA_VISIBLE_DEVICES=4,5 torchrun --nproc_per_node=2 --master_port=65530 exp/eval_scripts/eval_baseline.py
+# CUDA_VISIBLE_DEVICES=6 python exp/eval_scripts/eval_baseline.py
 
 # ---- 预初始化阶段的主进程判定（在 DDP 尚未 init 时使用） ----
 def _is_preinit_main() -> bool:
     return os.environ.get("LOCAL_RANK", "0") == "0"
 
 
-# GPU 设置
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5"
-
 if _is_preinit_main():
     print("========== Baseline 火灾检测评估启动 ==========")
     print(f"当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'}")
 
-DATA_ROOT = "data/full"
+DATA_ROOT = "data/splits_activefire"
 ALGORITHM = "voting"  # 可选: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
-SAVE_DIR = "output/baseline/voting_202510201920"  # 指向已训练模型的目录
-TH_FIRE = 0.25
+# DATA_ROOT = "data/splits_merged_pixels"
+# ALGORITHM = "large"
+SAVE_DIR = "output/baseline/voting_202512051446"  # 指向已训练模型的目录
+TH_FIRE = 0.5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BANDS = (7, 6, 2)
 
@@ -38,7 +46,7 @@ BANDS = (7, 6, 2)
 def parse_args():
     parser = argparse.ArgumentParser(description="Distributed evaluation for Baseline UNet")
     parser.add_argument("--dist", action="store_true", help="启用分布式评估 (检测到 LOCAL_RANK 也会自动启用)")
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--bands", type=int, nargs=3, default=BANDS, help="选择用于评估的三个波段索引")
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR)
@@ -112,7 +120,7 @@ param_path = os.path.join(SAVE_DIR, "weights", f"{model_name}.pth")
 if is_main_process():
     print(f"├─ 参数路径: {param_path}")
 
-model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=16)
+model = UNet(n_channels=len(BANDS), n_classes=1, n_filters=64)
 if is_main_process():
     print(f"├─ 网络架构: {model.__class__.__name__}")
 try:
@@ -152,6 +160,7 @@ num_samples = 0
 total_tp = 0
 total_fp = 0
 total_fn = 0
+total_px = 0
 
 with torch.inference_mode():
     test_iter = test_loader
@@ -164,31 +173,40 @@ with torch.inference_mode():
         probs = model(images)
         preds = (probs > TH_FIRE)
 
-    batch_size = images.size(0)
-    num_samples += batch_size
+        batch_size = images.size(0)
+        num_samples += batch_size
+        total_px += masks.numel()
 
-    pred_np = preds.cpu().numpy()
-    mask_np = masks.cpu().numpy()
+        pred_np = preds.cpu().numpy()
+        mask_np = masks.cpu().numpy()
 
-    tp = np.logical_and(pred_np, mask_np).sum()
-    fp = np.logical_and(pred_np, np.logical_not(mask_np)).sum()
-    fn = np.logical_and(np.logical_not(pred_np), mask_np).sum()
+        tp = np.logical_and(pred_np, mask_np).sum()
+        fp = np.logical_and(pred_np, np.logical_not(mask_np)).sum()
+        fn = np.logical_and(np.logical_not(pred_np), mask_np).sum()
 
-    total_tp += int(tp)
-    total_fp += int(fp)
-    total_fn += int(fn)
+        total_tp += int(tp)
+        total_fp += int(fp)
+        total_fn += int(fn)
 
 result_filename = f"eval_{model_name}"
 
 # DDP 聚合 totals
-totals = torch.tensor([total_tp, total_fp, total_fn, num_samples], dtype=torch.long, device='cuda' if torch.cuda.is_available() else 'cpu')
+totals = torch.tensor([total_tp, total_fp, total_fn, num_samples, total_px], dtype=torch.long, device='cuda' if torch.cuda.is_available() else 'cpu')
 if dist.is_initialized():
     dist.all_reduce(totals, op=dist.ReduceOp.SUM)
-total_tp_g, total_fp_g, total_fn_g, num_samples_g = totals.tolist()
+total_tp_g, total_fp_g, total_fn_g, num_samples_g, total_px_g = totals.tolist()
 
 precision = total_tp_g / (total_tp_g + total_fp_g) if (total_tp_g + total_fp_g) > 0 else 0.0
 recall = total_tp_g / (total_tp_g + total_fn_g) if (total_tp_g + total_fn_g) > 0 else 0.0
 f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+# IoU Calculations
+den_fire = (total_tp_g + total_fp_g + total_fn_g)
+iou_fire = (total_tp_g / den_fire) if den_fire > 0 else 0.0
+tn = max(0, total_px_g - total_tp_g - total_fp_g - total_fn_g)
+den_bg = (tn + total_fp_g + total_fn_g)
+iou_bg = (tn / den_bg) if den_bg > 0 else 0.0
+miou = (iou_fire + iou_bg) / 2.0
 
 report_path = os.path.join(SAVE_DIR, f"{result_filename}.txt")
 if is_main_process():
@@ -207,13 +225,22 @@ if is_main_process():
         f.write("=" * 50 + "\n")
         f.write(f"精确率: {precision:.4f}\n")
         f.write(f"召回率: {recall:.4f}\n")
-        f.write(f"F1分数: {f1:.4f}\n")
+        f.write(f"F1分数: {f1:.4f}\n\n")
+
+        f.write("IoU 指标\n")
+        f.write("-" * 50 + "\n")
+        f.write(f"Fire IoU: {iou_fire:.4f}  (TP={total_tp_g}, FP={total_fp_g}, FN={total_fn_g})\n")
+        f.write(f"Back IoU: {iou_bg:.4f}   (TN={tn}, FP={total_fp_g}, FN={total_fn_g})\n")
+        f.write(f"mIoU: {miou:.4f}\n")
 
     print("\n" + "=" * 50)
     print("Baseline 火灾检测模型评估结果:")
     print(f" - 精确率: {precision:.4f}")
     print(f" - 召回率: {recall:.4f}")
     print(f" - F1分数: {f1:.4f}")
+    print(f" - Fire IoU: {iou_fire:.4f}")
+    print(f" - Back IoU: {iou_bg:.4f}")
+    print(f" - mIoU: {miou:.4f}")
     print(f"\n评估结果已保存至: {SAVE_DIR}")
     print(f"- 文本报告: {report_path}")
     print("=" * 50 + "\n")

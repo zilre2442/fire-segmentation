@@ -1,0 +1,10 @@
+===== FDE-UNet Evaluation =====
+timestamp: 2025-12-26 15:23:16
+threshold: 0.5
+samples: 680
+precision: 0.9407
+recall: 0.8875
+f1: 0.9133
+fire_iou: 0.8405
+back_iou: 0.9990
+miou: 0.9198

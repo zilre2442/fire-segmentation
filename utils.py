@@ -69,10 +69,55 @@ def analyze_model_performance(
             else:
                 model(dummy_input)
     
-    # 5. 计算量统计
-    flops = prof.key_averages().total_average().flops or 0
+    # 5. 计算量统计 - 使用多种方法
     print("\n[计算量统计]")
-    print(f"  GFLOPs: {flops / 1e9:.2f}")
+    
+    # 方法1: 尝试从 profiler 获取
+    flops_from_prof = 0
+    try:
+        flops_from_prof = prof.key_averages().total_average().flops or 0
+        if flops_from_prof > 0:
+            print(f"  GFLOPs (Profiler): {flops_from_prof / 1e9:.2f}")
+    except (AttributeError, RuntimeError):
+        pass
+    
+    # 方法2: 使用 fvcore (如果可用)
+    try:
+        from fvcore.nn import FlopCountAnalysis, flop_count_table
+        import torch.nn as nn
+        
+        # 创建一个包装模块，只返回主要的 tensor 输出
+        class ModelWrapper(nn.Module):
+            def __init__(self, original_model):
+                super().__init__()
+                self.model = original_model
+            
+            def forward(self, x):
+                output = self.model(x)
+                # 如果输出是 dataclass 或有多个字段，只返回主要的 tensor
+                if hasattr(output, 'seg_logits'):
+                    return output.seg_logits
+                elif hasattr(output, 'fused_logits'):
+                    return output.fused_logits
+                elif isinstance(output, (tuple, list)):
+                    return output[0]
+                else:
+                    return output
+        
+        wrapped_model = ModelWrapper(model)
+        flops_analyzer = FlopCountAnalysis(wrapped_model, dummy_input)
+        total_flops = flops_analyzer.total()
+        print(f"  GFLOPs (FVCore): {total_flops / 1e9:.2f}")
+        # 可选：显示详细的每层FLOPS
+        # print("\n[每层FLOPS详情]")
+        # print(flop_count_table(flops_analyzer, max_depth=3))
+    except ImportError:
+        if flops_from_prof == 0:
+            print("  提示: 安装 fvcore 以获得准确的 FLOPS 统计")
+            print("  安装命令: pip install fvcore")
+    except Exception as e:
+        if flops_from_prof == 0:
+            print(f"  FLOPS 计算失败: {e}")
 
     # 6. 时间统计
     time_stats = prof.key_averages().total_average()
@@ -237,3 +282,4 @@ def adaptive_crop(images, masks, crop_size, max_crop_size):
         cropped_masks.append(cropped_mask)
     
     return torch.stack(cropped_images), torch.stack(cropped_masks)
+

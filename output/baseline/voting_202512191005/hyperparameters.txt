@@ -1,0 +1,18 @@
+===== Baseline UNet Hyperparameters =====
+time: 2025-12-19 10:05:07
+algo: voting
+data_root: data/splits_activefire
+bands: [7, 6, 5]
+epochs: 50
+batch_size: 16
+lr: 0.001
+dist_enabled: True world_size: 8
+
+Model Info:
+total_params: 34519233
+trainable_params: 34519233
+
+Loss
+  name: FocalLoss
+  reduction: mean
+=======================================

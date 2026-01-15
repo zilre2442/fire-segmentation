@@ -1,137 +1,171 @@
-# RGS-Net：基于重建误差引导的火点分割（PyTorch）
+# DualSight-Fire
 
-本项目实现了一个共享编码器的双分支 U-Net：
-- 分割分支输出火点概率图；
-- 重建分支复原输入影像，利用重建误差作为“异常线索”门控分割概率，从而提升鲁棒性与精度。
+A Dual-Decoder network for small fire segmentation in remote sensing imagery.
 
-## 特色
-- 共享编码器 + 双解码器（分割 / 重建）
-- 误差引导融合：`fused_probs = sigmoid(|x-\hat{x}|/tau) × seg_probs`
-- 重建损失仅在背景上计算，避免强行还原火点像素
-- torchrun 启动的分布式训练（DDP）
-- 评估仅保留微平均 Precision/Recall/F1（更干净、可复现）
-- 超参日志包含“分割损失 + 重建损失”的完整配置
+本仓库包含多种分割模型（Baseline/AttentionUNet/UNet++/FDE-UNet/FPS-U2Net/Dual-Sight Fire 及 StageFusion 变体），以及配套的训练/评估脚本与数据切分工具。
 
-## 目录结构
+## 1. 仓库结构
+
+（以当前代码为准）
+
 ```
-├─ data/
-│  └─ full/
-│     ├─ <ALGO>_train.csv
-│     ├─ <ALGO>_val.csv
-│     └─ <ALGO>_test.csv             # 每行：(image_path, mask_path)
+.
+├─ dataset.py                         # 数据集：LandsatFireDataset（从 CSV 读取 img/mask 路径）
+├─ loss.py                            # 损失函数（SpatialFocalLoss/SpatialFocalTverskyLoss 等）
+├─ utils.py                           # 通用工具
+├─ environment.yml                    # Conda 环境（Python=3.10 + rasterio/gdal 等）
 ├─ models/
-│  ├─ RGS_Net.py                      # 模型定义（类名：RGSNet）
-│  └─ baseline.py                     # 基线 UNet（参考）
-├─ dataset.py                         # LandsatFireDataset（raster 读取）
-├─ loss.py                            # FocalTverskyLoss、MaskedL1Loss 等
-├─ utils.py                           # analyze_model_performance、adaptive_crop
-├─ train_RGS_Net.py                   # 分布式训练入口
-├─ eval_RGS_Net.py                    # 评估（仅微平均指标）
-└─ output/                            # 训练输出
+│  ├─ baseline.py                     # Baseline UNet
+│  ├─ attention_unet.py               # Attention UNet
+│  ├─ unet_plusplus.py                # UNet++
+│  ├─ FDE_Net.py                      # FDE-UNet
+│  ├─ FPS_U2Net.py                    # FPS-U2Net
+│  ├─ DualSight_Fire.py               # Dual-Sight Fire / StageFusion
+│  └─ RGS_Net_V4_no_transformer.py    # 历史/消融文件（保留）
+├─ exp/
+│  ├─ train_scripts/                  # 训练脚本（单卡/torchrun DDP）
+│  ├─ eval_scripts/                   # 评估脚本
+│  └─ utils/                          # 可视化/预测等工具脚本
+├─ data/
+│  ├─ splits_activefire/              # ActiveFire 数据集划分 CSV（voting 等）
+│  ├─ splits_land8fire/               # Land8Fire 数据集划分 CSV
+│  ├─ splits_manual/                  # 手工标注相关划分
+│  └─ ...                             # 数据处理与拆分脚本
+├─ dataset/
+│  ├─ activefire/                     # 数据组织：images/ masks/
+│  ├─ Land8Fire/                      # 数据组织：images/ masks/
+│  └─ mannual_annotations/            # 手工标注数据
+└─ output/                            # 训练输出（权重、日志、曲线、评估报告）
 ```
 
-## 数据格式
-`dataset.py` 期望 CSV 文件包含表头，且每行两列：
-```
-image_path,mask_path
-/path/to/image.tif,/path/to/mask.tif
-...
-```
-- 通过 `bands` 参数选择波段（示例常用 (7,6,5)）；
-- Landsat 16-bit 影像会按 65535 归一化到 [0,1]。
+## 2. 环境准备
 
-## 环境安装
-项目依赖：PyTorch、Rasterio、NumPy、Matplotlib、TQDM。
+推荐使用 conda（因为 `rasterio/gdal` 更稳定）。
 
-1）安装 PyTorch（根据你的 CUDA/OS 选择官方命令）：
-- https://pytorch.org/get-started/locally/
-
-2）安装其余依赖：
 ```bash
-pip install rasterio numpy matplotlib tqdm
+conda env create -f environment.yml
+conda activate fire
 ```
 
-可选：若使用性能分析（CUDA profiler），请确保 CUDA 环境可用。
+安装 PyTorch（按你的 CUDA 版本选择；以下示例为 CUDA 12.1）：
 
-## 模型概览
-文件：`models/RGS_Net.py`
-- 类：`RGSNet`
-- 前向输出（结构体）：
-  - `seg_logits`：分割分支 logits
-  - `seg_probs`：分割概率
-  - `reconstruction`：重建结果 \(\hat{x}\)
-  - `recon_error`：重建误差 \(|x-\hat{x}|\)
-  - `fused_probs`：融合后的概率
-
-融合过程（片段）：
-```
-recon_scalar = recon_error.mean(dim=1, keepdim=True)
-weighting = torch.sigmoid(recon_scalar / tau)
-fused = seg_probs * weighting
-```
-
-损失函数（见 `loss.py`）：
-- 分割：`FocalTverskyLoss`（训练脚本默认）
-- 重建：`MaskedL1Loss`（仅对背景像素计算）
-
-## 训练（DDP）
-脚本：`train_RGS_Net.py`
-
-关键参数：
-- `DATA_ROOT = data/full`
-- `ALGORITHM`（CSV 前缀，可选：Kumar-Roy / Murphy / Schroeder / intersection / voting）
-- `BANDS = (7, 6, 5)`
-- `BATCH_SIZE = 128`，`EPOCHS = 200`，`LEARNING_RATE = 3e-4`
-- 重建损失权重：`RECON_LOSS_WEIGHT = 1.0`
-- 融合温度：`TAU = 1.0`
-
-使用 4 张 GPU 训练示例：
 ```bash
-torchrun --nproc_per_node=4 train_RGS_Net.py
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
-输出（仅 rank 0 写入）：
-- `output/RGS_Net/<ALGO>_<时间戳>/`
-  - `model_best.pth`、`model_final.pth`、按间隔保存的 checkpoints
-  - `hyperparameters.txt`（记录模型、优化器，以及“分割/重建损失”的配置）
-  - `logs/`（各进程日志）
 
-备注：
-- 训练使用 `DistributedSampler`，必须通过 torchrun 启动以注入 RANK/WORLD_SIZE/LOCAL_RANK。
-- 脚本包含早停与 ReduceLROnPlateau 学习率调度。
-- 可通过全局参数启用 `adaptive_crop()`（缩放式课程学习）。
+可选（仅当你需要 FLOPs/模型分析时）：
 
-## 评估
-脚本：`eval_RGS_Net.py`
-- 设置 `SAVE_DIR` 指向训练输出目录（如 `output/RGS_Net/voting_YYYYMMDDHHMM`）。
-- 是否使用融合：`USE_FUSION=True/False`；温度参数 `TAU` 可调。
-
-运行：
 ```bash
-python eval_RGS_Net.py
-```
-输出：
-- `eval_<model_name>.txt`（微平均指标）
-- 同时会保存一份小样本预测可视化 `<model_name>_prediction.png`
-
-注意：评估脚本默认从 `SAVE_DIR/weights/model_best.pth` 加载；若你的权重保存在 `SAVE_DIR/model_best.pth`，请自行：
-- 将权重复制到 `SAVE_DIR/weights/` 下；或
-- 修改评估脚本中的 `param_path` 指向实际文件。
-
-## 快速自检
-使用 `utils.py` 的工具快速查看模型推理与显存：
-```python
-from models.RGS_Net import RGSNet
-from utils import analyze_model_performance
-
-analyze_model_performance(
-    model=RGSNet(n_channels=3, n_filters=32),
-    input_shape=(1, 3, 256, 256),
-    device='cpu'
-)
+pip install fvcore
 ```
 
-## 常见问题
-- Rasterio/GDAL 安装：建议使用 conda-forge 渠道或参考你平台的 GDAL 安装指南。
-- CSV 路径找不到：检查 CSV 内是否为绝对路径；`dataset.py` 会校验文件存在。
-- CUDA OOM：降低 `BATCH_SIZE`，减少并行进程，或启用裁剪。
-- DDP 卡住：务必用 `torchrun` 启动，并确保所有进程看到相同的数据与 CSV。
+## 3. 数据准备与 CSV 格式
+
+训练/评估脚本默认从 `--data-root` 指向的目录读取 `{algo}_train.csv / {algo}_val.csv / {algo}_test.csv`。
+
+例如 ActiveFire voting 划分：
+
+```
+data/splits_activefire/
+├─ voting_train.csv
+├─ voting_val.csv
+└─ voting_test.csv
+```
+
+CSV 格式：
+- 第一行为表头（会被跳过）
+- 每行至少两列：
+	1) 影像路径（多波段 GeoTIFF 等，`rasterio` 可读）
+	2) 掩膜路径（`rasterio` 可读；默认读取第 1 波段作为 [H,W] 掩膜）
+
+波段说明：
+- `dataset.py` 中 `bands` 以 1 开始计数（Landsat 10 个波段时，从 1 到 10）
+- 训练脚本默认 `--bands 7 6 5`
+
+## 4. 训练
+
+所有训练脚本都支持：
+- 单卡：直接 `python ...`
+- 多卡 DDP：使用 `torchrun ...`（脚本会自动读取 `WORLD_SIZE/LOCAL_RANK`）
+
+### 4.1 Dual-Sight Fire
+
+单卡：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python exp/train_scripts/train_DualSight_Fire.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5
+```
+
+多卡：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=65531 \
+	exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
+```
+
+输出目录默认：
+- `output/DualSight_Fire/{algo}_YYYYmmddHHMM/`
+
+### 4.2 Dual-Sight Fire StageFusion
+
+单卡：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python exp/train_scripts/train_DualSight_Fire_stagefusion.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5
+```
+
+多卡：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=65530 \
+	exp/train_scripts/train_DualSight_Fire_stagefusion.py --data-root data/splits_activefire --algo voting
+```
+
+输出目录默认：
+- `output/DualSight_Fire_stagefusion/{algo}_YYYYmmddHHMM/`
+
+### 4.3 其它模型
+
+同样在 `exp/train_scripts/` 下提供：
+- `train_baseline.py`
+- `train_AttentionUNet.py`
+- `train_UNetPlusPlus.py`
+- `train_FDE_UNet.py`
+- `train_FPS_U2Net.py`
+
+它们的参数风格与 Dual-Sight Fire 基本一致（`--data-root/--algo/--bands/--epochs/--batch-size/...`）。
+
+## 5. 评估
+
+以 Dual-Sight Fire StageFusion 为例：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python exp/eval_scripts/eval_DualSight_Fire_stagefusion.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5 \
+	--output-type fused --threshold 0.5 \
+	--save-dir output/DualSight_Fire_stagefusion/voting_202512191353
+```
+
+默认会从 `--save-dir/weights/model_best.pth` 读取权重；也可用 `--model-path` 指定。
+
+对应的其它评估脚本位于 `exp/eval_scripts/`：
+- `eval_DualSight_Fire.py`
+- `eval_baseline.py` / `eval_AttentionUNet.py` / `eval_UNetPlusPlus.py` / `eval_FDE_UNet.py` / `eval_FPS_U2Net.py`
+
+## 6. 输出内容说明
+
+训练输出目录通常包含：
+- `weights/model_best.pth`：验证集最优权重
+- `train_log.txt`：训练/验证 loss 记录
+- `hyperparameters.txt`：超参数与模型统计
+- `loss_curve.png`（如脚本生成）：loss 曲线
+
+评估输出目录通常包含：
+- `eval_*.txt`：Precision/Recall/F1/IoU/mIoU 等指标
+- 可视化样例图（不同脚本生成的内容略有差异）
+
+## 7. 许可证与引用
+
+本项目仅用于学术研究与教学目的。若在论文或项目中使用，请引用本仓库并致谢作者。
