@@ -50,10 +50,14 @@ ENV/
 models/visual/PlotNeuralNet/
 
 # datasets
-dataset/*
+dataset/activefire/*
+dataset/Land8Fire/*
+dataset/mannual_annotations/*
 
 
 squashfs-root/
 .gitignore
 
 output_all
+
+exp/utils

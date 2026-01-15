@@ -482,7 +482,6 @@ class SpatialFocalTverskyLoss(nn.Module):
         weights_tensor = torch.stack(weights_list, dim=0).unsqueeze(1).to(device)
         return weights_tensor
 
-
 class SpatialFocalBCELoss(nn.Module):
     """组合空间加权 Focal 与 BCE 的二分类损失。
 
@@ -581,7 +580,6 @@ class SpatialFocalBCELoss(nn.Module):
 
         return torch.stack(weights_batch, dim=0).to(device)
 
-
 class SpatialFocalDiceLoss(nn.Module):
     """带小目标加权的 Focal + Dice 组合损失（单通道二分类）。"""
 
@@ -667,142 +665,3 @@ class SpatialFocalDiceLoss(nn.Module):
             weights_list.append(torch.from_numpy(weights.astype(np.float32)))
         weights_tensor = torch.stack(weights_list, dim=0).unsqueeze(1).to(device)
         return weights_tensor
-
-
-# class SpatialFocalLoss(nn.Module):
-#     """带空间连通域加权的 Focal Loss。
-
-#     该损失使用空间权重替代了标准 Focal Loss 中的 alpha 参数。
-#     权重图根据连通域面积计算：
-#     - 前景像素：根据所属连通域面积计算权重 (小目标权重高)。
-#     - 背景像素：使用 background_weight。
-
-#     Args:
-#         gamma: Focal Loss 的聚焦参数。
-#         target_threshold: 将标签二值化的阈值。
-#         weight_min: 空间权重下限 (背景与大连通域的最低权重)。
-#         weight_max: 空间权重上限 (最小连通域的最大权重)。
-#         weight_gamma: 控制权重随面积衰减的幂指数，数值越大代表对小目标的加权越强。
-#         background_weight: 背景像素的权重。
-#         connectivity: 连通域邻域类型，``4`` 或 ``8``。
-#         eps: 数值稳定项。
-
-#     Note:
-#         当前实现仅支持二分类分割 (预测张量 ``pred`` 的通道数应为 1)。
-#     """
-
-#     def __init__(
-#         self,
-#         gamma: float = 1.5,
-#         target_threshold: float = 0.5,
-#         weight_min: float = 1.0,
-#         weight_max: float = 10.0,
-#         weight_gamma: float = 0.25,
-#         background_weight: float = 1.0,
-#         connectivity: int = 8,
-#         eps: float = 1e-6,
-#         weight_update_freq: int = 1,
-#     ) -> None:
-#         super().__init__()
-#         if connectivity not in (4, 8):
-#             raise ValueError("connectivity 仅支持 4 或 8")
-#         if weight_max < weight_min:
-#             raise ValueError("weight_max 应大于等于 weight_min")
-
-#         self.gamma = gamma
-#         self.target_threshold = target_threshold
-#         self.weight_min = weight_min
-#         self.weight_max = weight_max
-#         self.weight_gamma = weight_gamma
-#         self.background_weight = background_weight
-#         self.connectivity = connectivity
-#         self.eps = eps
-#         self.weight_update_freq = weight_update_freq
-
-#     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-#         assert pred.size() == target.size(), "预测与标签尺寸不一致"
-#         if pred.dim() != 4 or pred.size(1) != 1:
-#             raise ValueError("SpatialFocalLoss 目前仅支持形状为 [B,1,H,W] 的二分类任务")
-
-#         target = target.float()
-#         probas = torch.sigmoid(pred)
-
-#         # Focal Loss 核心部分 (不带 alpha)
-#         bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
-#         p_t = torch.where(target == 1, probas, 1 - probas)
-#         focal_weight = (1 - p_t).clamp(min=0.0).pow(self.gamma)
-
-#         # 空间权重（每个 batch 重新计算）
-#         with torch.no_grad():
-#             weight_map = self._build_spatial_weight(target=target)
-
-#         # Loss = weight_map * focal_weight * bce_loss
-#         # 这里 weight_map 充当了 alpha 的角色 (针对每个像素的权重)
-#         weighted_loss = weight_map * focal_weight * bce_loss
-#         norm = weight_map.sum().clamp_min(self.eps)
-#         return weighted_loss.sum() / norm
-
-#     def _build_spatial_weight(self, target: torch.Tensor) -> torch.Tensor:
-#         target_mask = (target > self.target_threshold).squeeze(1)
-#         union_mask = target_mask.bool()
-
-#         # 原尺寸计算连通域权重
-#         batch_weights = self._component_weight_2d_gpu(union_mask)
-#         return batch_weights.unsqueeze(1)
-
-#     def _component_weight_2d_gpu(self, binary_masks: torch.Tensor) -> torch.Tensor:
-#         """使用 OpenCV 高效计算连通域权重（CPU优化后传回GPU）
-        
-#         Args:
-#             binary_masks: 形状为 [B, H, W] 的二值掩膜张量
-            
-#         Returns:
-#             权重图，形状为 [B, H, W]
-#         """
-#         import cv2
-        
-#         device = binary_masks.device
-#         B, H, W = binary_masks.shape
-        
-#         weights_batch = []
-        
-#         for b in range(B):
-#             # 将mask转到CPU并转为numpy（uint8格式）
-#             mask_np = binary_masks[b].cpu().numpy().astype(np.uint8)
-            
-#             if mask_np.sum() == 0:
-#                 # 全背景情况
-#                 weight_map = np.full_like(mask_np, self.background_weight, dtype=np.float32)
-#                 weights_batch.append(torch.from_numpy(weight_map))
-#                 continue
-            
-#             # 使用OpenCV的连通域标记（高度优化）
-#             connectivity_cv = 4 if self.connectivity == 4 else 8
-#             num_labels, labels = cv2.connectedComponents(mask_np, connectivity=connectivity_cv)
-            
-#             if num_labels <= 1:  # 只有背景
-#                 weight_map = np.full_like(mask_np, self.background_weight, dtype=np.float32)
-#                 weights_batch.append(torch.from_numpy(weight_map))
-#                 continue
-            
-#             # 统计每个连通域的面积
-#             areas = np.bincount(labels.flatten()).astype(np.float32)
-#             areas[0] = np.inf  # 背景不参与计算
-
-#             # 构建面积映射（前景像素处为该连通域面积）
-#             area_map = areas[labels]
-
-#             # 小目标更高权重：使用归一化反面积
-#             inv_area = 1.0 / np.maximum(area_map, 1.0)
-#             inv_area[~np.isfinite(inv_area)] = 0.0
-#             if np.any(inv_area > 0):
-#                 inv_area = inv_area / inv_area.max()
-#             weights = self.weight_min + (self.weight_max - self.weight_min) * (inv_area ** self.weight_gamma)
-
-#             # 背景权重单独指定
-#             weights[labels == 0] = self.background_weight
-            
-#             weights_batch.append(torch.from_numpy(weights.astype(np.float32)))
-        
-#         # 将结果堆叠并传回GPU
-#         return torch.stack(weights_batch, dim=0).to(device)

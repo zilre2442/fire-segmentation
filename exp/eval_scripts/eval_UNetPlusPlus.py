@@ -1,4 +1,4 @@
-"""评估脚本: UNet++ (与 RGS-Net V4 输出对齐)
+"""评估脚本: UNet++ (与 Dual-Sight Fire 输出对齐)
 
 - 支持分布式评估 (`--dist`)，自动聚合全局指标
 - 默认从 `--save-dir/weights/model_best.pth` 加载参数；也支持 `--model-path`

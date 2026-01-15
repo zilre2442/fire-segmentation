@@ -1,41 +1,69 @@
-# Fire-Segmentation: RGS-Net V3 火点分割（PyTorch）
+# DualSight-Fire
 
-面向 Landsat 遥感影像的火点分割模型与训练/评估脚本，主力模型为 RGS-Net V3：共享编码器、分割与重建双分支，利用空间重建误差引导分割，兼顾鲁棒性与精度。
+A Dual-Decoder network for small fire segmentation in remote sensing imagery.
 
-## 亮点
-- 共享编码器 + 双解码器（分割/重建），在复杂背景下更稳
-- 空间重建误差引导（Spatial guidance）提升难样本判别力
-- 支持分布式训练（torchrun + DDP），开箱即用
-- 提供批量训练与批量评估脚本，便于超参搜索与结果对比
-- 清晰的输出目录结构与日志/可视化产物
+本仓库包含多种分割模型（Baseline/AttentionUNet/UNet++/FDE-UNet/FPS-U2Net/Dual-Sight Fire 及 StageFusion 变体），以及配套的训练/评估脚本与数据切分工具。
 
-## 仓库结构
+## 1. 仓库结构
+
+（以当前代码为准）
+
 ```
-├─ dataset.py                        # 数据集定义：LandsatFireDataset
-├─ loss.py                           # 损失：FocalTverskyLoss、SpatialFocalLoss 等
-├─ utils.py                          # 常用工具：adaptive_crop 等
+.
+├─ dataset.py                         # 数据集：LandsatFireDataset（从 CSV 读取 img/mask 路径）
+├─ loss.py                            # 损失函数（SpatialFocalLoss/SpatialFocalTverskyLoss 等）
+├─ utils.py                           # 通用工具
+├─ environment.yml                    # Conda 环境（Python=3.10 + rasterio/gdal 等）
 ├─ models/
-│  ├─ baseline.py                    # 基线模型（UNet 类）
-│  ├─ RGS_Net_V1.py                  # RGS-Net V1
-│  ├─ RGS_Net_V2.py                  # RGS-Net V2
-│  └─ RGS_Net_V3.py                  # RGS-Net V3（推荐）
+│  ├─ baseline.py                     # Baseline UNet
+│  ├─ attention_unet.py               # Attention UNet
+│  ├─ unet_plusplus.py                # UNet++
+│  ├─ FDE_Net.py                      # FDE-UNet
+│  ├─ FPS_U2Net.py                    # FPS-U2Net
+│  ├─ DualSight_Fire.py               # Dual-Sight Fire / StageFusion
+│  └─ RGS_Net_V4_no_transformer.py    # 历史/消融文件（保留）
 ├─ exp/
-│  ├─ train_scripts/
-│  │  ├─ train_RGS_Net_V3.py         # 单次训练脚本（DDP）
-│  │  └─ multi_run_train_RGS_Net_V3.py # 批量训练脚本（多组超参串行跑）
-│  └─ eval_scripts/
-│     ├─ eval_RGS_Net_V3.py          # 单次评估脚本
-│     └─ multi_eval_RGS_Net_V3.py    # 批量评估脚本（汇总报告）
+│  ├─ train_scripts/                  # 训练脚本（单卡/torchrun DDP）
+│  ├─ eval_scripts/                   # 评估脚本
+│  └─ utils/                          # 可视化/预测等工具脚本
 ├─ data/
-│  ├─ split_data_activefire.py       # 数据拆分工具（如需）
-│  ├─ unzip_data_activefire.py       # 数据解压工具（如需）
-│  └─ splits_activefire/             # 训练/验证/测试 CSV
-├─ dataset/activefire/               # 原始数据组织（如已提供）
-└─ output/                           # 训练输出与评估报告
+│  ├─ splits_activefire/              # ActiveFire 数据集划分 CSV（voting 等）
+│  ├─ splits_land8fire/               # Land8Fire 数据集划分 CSV
+│  ├─ splits_manual/                  # 手工标注相关划分
+│  └─ ...                             # 数据处理与拆分脚本
+├─ dataset/
+│  ├─ activefire/                     # 数据组织：images/ masks/
+│  ├─ Land8Fire/                      # 数据组织：images/ masks/
+│  └─ mannual_annotations/            # 手工标注数据
+└─ output/                            # 训练输出（权重、日志、曲线、评估报告）
 ```
 
-## 数据准备
-训练与评估脚本默认从 `data/splits_activefire/` 读取 CSV：
+## 2. 环境准备
+
+推荐使用 conda（因为 `rasterio/gdal` 更稳定）。
+
+```bash
+conda env create -f environment.yml
+conda activate fire
+```
+
+安装 PyTorch（按你的 CUDA 版本选择；以下示例为 CUDA 12.1）：
+
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+可选（仅当你需要 FLOPs/模型分析时）：
+
+```bash
+pip install fvcore
+```
+
+## 3. 数据准备与 CSV 格式
+
+训练/评估脚本默认从 `--data-root` 指向的目录读取 `{algo}_train.csv / {algo}_val.csv / {algo}_test.csv`。
+
+例如 ActiveFire voting 划分：
 
 ```
 data/splits_activefire/
@@ -44,132 +72,100 @@ data/splits_activefire/
 └─ voting_test.csv
 ```
 
-CSV 每行通常包含图像与掩膜路径。可通过 `dataset.py` 的 `LandsatFireDataset` 的 `bands` 参数选择用于训练的波段（默认 `(7,6,5)`）。
+CSV 格式：
+- 第一行为表头（会被跳过）
+- 每行至少两列：
+	1) 影像路径（多波段 GeoTIFF 等，`rasterio` 可读）
+	2) 掩膜路径（`rasterio` 可读；默认读取第 1 波段作为 [H,W] 掩膜）
 
-## 环境准备
-建议 Python 3.8+，安装依赖：
+波段说明：
+- `dataset.py` 中 `bands` 以 1 开始计数（Landsat 10 个波段时，从 1 到 10）
+- 训练脚本默认 `--bands 7 6 5`
+
+## 4. 训练
+
+所有训练脚本都支持：
+- 单卡：直接 `python ...`
+- 多卡 DDP：使用 `torchrun ...`（脚本会自动读取 `WORLD_SIZE/LOCAL_RANK`）
+
+### 4.1 Dual-Sight Fire
+
+单卡：
 
 ```bash
-pip install -r requirements.txt
+CUDA_VISIBLE_DEVICES=0 python exp/train_scripts/train_DualSight_Fire.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5
 ```
 
-PyTorch 请依据你的 CUDA/OS 在官网选择命令安装：https://pytorch.org/get-started/locally/
+多卡：
 
-## 快速开始
-
-### 单次训练（RGS-Net V3）
-脚本：`exp/train_scripts/train_RGS_Net_V3.py`
-
-常用参数（在脚本顶部常量中设置）：
-- 数据与算法：`DATA_ROOT = "data/splits_activefire"`，`ALGORITHM = "voting"`
-- 波段：`BANDS = (7, 6, 5)`
-- 训练：`BATCH_SIZE = 64`，`EPOCHS = 200`，`LEARNING_RATE = 3e-4`
-- 日志/保存：`SAVE_DIR = output/RGS_Net_V3/<algo>_<时间戳>`（脚本会自动创建）
-
-运行示例（2 张 GPU）：
 ```bash
-CUDA_VISIBLE_DEVICES=1,2 torchrun --nproc_per_node=2 exp/train_scripts/train_RGS_Net_V3.py
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=65531 \
+	exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
 ```
 
-训练输出（位于 `output/RGS_Net_V3/` 下，示例）：
-- `weights/`：`model_best.pth`、周期性保存的权重
-- `logs/`：各 rank 日志
-- `loss_curves.png` 等可选可视化
+输出目录默认：
+- `output/DualSight_Fire/{algo}_YYYYmmddHHMM/`
 
-### 批量训练（多组超参串行）
-脚本：`exp/train_scripts/multi_run_train_RGS_Net_V3.py`
+### 4.2 Dual-Sight Fire StageFusion
 
-1) 在脚本内的 `EXPERIMENTS` 列表中定义多组实验（每组包含名称、描述和超参）。
-2) 运行：
+单卡：
+
 ```bash
-CUDA_VISIBLE_DEVICES=1,2 python3 exp/train_scripts/multi_run_train_RGS_Net_V3.py
+CUDA_VISIBLE_DEVICES=0 python exp/train_scripts/train_DualSight_Fire_stagefusion.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5
 ```
 
-产物：
-- `output/RGS_Net_V3/multi_run/` 目录下，每个实验生成一个独立子目录（含 `weights/`、`logs/`、`experiment_config.json`）
-- 汇总文件：`experiments_summary.json`，以及 `multi_run_log.txt`
+多卡：
 
-### 单次评估
-脚本：`exp/eval_scripts/eval_RGS_Net_V3.py`
-
-将 `--save-dir` 指向训练输出目录（包含 `weights/model_best.pth`）：
 ```bash
-python3 exp/eval_scripts/eval_RGS_Net_V3.py \
-  --batch-size 64 \
-  --num-workers 4 \
-  --algo voting \
-  --save-dir output/RGS_Net_V3/voting_YYYYMMDDHHMM
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=65530 \
+	exp/train_scripts/train_DualSight_Fire_stagefusion.py --data-root data/splits_activefire --algo voting
 ```
 
-产物：
-- 指标：`eval_model_best.txt`（微平均 Precision/Recall/F1）
-- 可视化：`model_best_prediction.png`、随机样例图保存在 `pred_samples/`
+输出目录默认：
+- `output/DualSight_Fire_stagefusion/{algo}_YYYYmmddHHMM/`
 
-提示：如需分布式评估，可用 torchrun（确保设置 `MASTER_ADDR/MASTER_PORT` 或直接使用单进程）。
+### 4.3 其它模型
 
-### 批量评估（对批量训练产物批量评估并汇总）
-脚本：`exp/eval_scripts/multi_eval_RGS_Net_V3.py`
+同样在 `exp/train_scripts/` 下提供：
+- `train_baseline.py`
+- `train_AttentionUNet.py`
+- `train_UNetPlusPlus.py`
+- `train_FDE_UNet.py`
+- `train_FPS_U2Net.py`
 
-默认读取 `output/RGS_Net_V3/multi_run/experiments_summary.json` 并逐个评估：
+它们的参数风格与 Dual-Sight Fire 基本一致（`--data-root/--algo/--bands/--epochs/--batch-size/...`）。
+
+## 5. 评估
+
+以 Dual-Sight Fire StageFusion 为例：
+
 ```bash
-CUDA_VISIBLE_DEVICES=1 python3 exp/eval_scripts/multi_eval_RGS_Net_V3.py
+CUDA_VISIBLE_DEVICES=0 python exp/eval_scripts/eval_DualSight_Fire_stagefusion.py \
+	--data-root data/splits_activefire --algo voting --bands 7 6 5 \
+	--output-type fused --threshold 0.5 \
+	--save-dir output/DualSight_Fire_stagefusion/voting_202512191353
 ```
 
-或自定义汇总文件：
-```bash
-CUDA_VISIBLE_DEVICES=1 python3 exp/eval_scripts/multi_eval_RGS_Net_V3.py \
-  --summary-file output/RGS_Net_V3/multi_run/experiments_summary.json
-```
+默认会从 `--save-dir/weights/model_best.pth` 读取权重；也可用 `--model-path` 指定。
 
-产物：
-- 文本对比报告：`evaluation_comparison.txt`（按 F1 排序）
-- JSON 报告：`evaluation_results.json`
+对应的其它评估脚本位于 `exp/eval_scripts/`：
+- `eval_DualSight_Fire.py`
+- `eval_baseline.py` / `eval_AttentionUNet.py` / `eval_UNetPlusPlus.py` / `eval_FDE_UNet.py` / `eval_FPS_U2Net.py`
 
-### ActiveFire UNet Baseline 基线
-复现自 `activefire-main` 项目 Keras UNet (64f 两卷积/层) 的 PyTorch 版本，提供最简单单分支对照：
+## 6. 输出内容说明
 
-训练示例（2 GPU）：
-```bash
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 exp/train_scripts/train_activefire_baseline_unet.py \
-  --algorithm voting --epochs 50 --batch-size 16 --lr 1e-3 --base-filters 64 --loss bce
-```
+训练输出目录通常包含：
+- `weights/model_best.pth`：验证集最优权重
+- `train_log.txt`：训练/验证 loss 记录
+- `hyperparameters.txt`：超参数与模型统计
+- `loss_curve.png`（如脚本生成）：loss 曲线
 
-单卡调试：
-```bash
-RANK=0 WORLD_SIZE=1 LOCAL_RANK=0 python3 exp/train_scripts/train_activefire_baseline_unet.py --epochs 2 --batch-size 4
-```
+评估输出目录通常包含：
+- `eval_*.txt`：Precision/Recall/F1/IoU/mIoU 等指标
+- 可视化样例图（不同脚本生成的内容略有差异）
 
-评估：
-```bash
-python3 exp/eval_scripts/eval_activefire_baseline_unet.py \
-  --algorithm voting \
-  --weights output/ActiveFireBaseline/voting_YYYYMMDDHHMM/weights/model_best.pth \
-  --threshold 0.5
-```
+## 7. 许可证与引用
 
-文档：`docs/baseline_activefire_UNet_说明.md`
-
-## 配置与可调参数小抄
-损失（参见 `loss.py` 与训练脚本注入参数）：
-- 分割分支：SpatialFocalLoss（`SEG_*` 参数）
-  - 常用：`SEG_ALPHA`、`SEG_GAMMA`、`SEG_WEIGHT_STRATEGY`（small/large）
-- 重建分支：SpatialFocalLoss（`REC_*` 参数）
-  - 常用：`REC_ALPHA`、`REC_GAMMA`、`REC_WEIGHT_STRATEGY`
-
-调优建议（目标不同优先级不同）：
-- 提高精确率（减少误报）：提高 `*_GAMMA`、增大背景权重（如 `background_weight`）、后处理删除小连通域、提升推理阈值
-- 提高召回率（减少漏报）：适当增大 `SEG_ALPHA`，降低推理阈值，放宽小连通域过滤
-
-## 常见问题与排错
-- NCCL/分布式初始化错误（如缺少 MASTER_ADDR）：
-  - 单进程运行评估：`python3 eval_RGS_Net_V3.py ...`（不使用 torchrun）
-  - 或设置：`MASTER_ADDR=127.0.0.1 MASTER_PORT=29500 RANK=0 WORLD_SIZE=1 LOCAL_RANK=0`
-- 找不到日志文件：脚本会自动创建 `output/...` 目录；若自定义 `SAVE_DIR`，请确保有写权限
-- 权重路径：默认从 `SAVE_DIR/weights/model_best.pth` 读取
-- CUDA OOM：降低 `BATCH_SIZE`、减少 GPU 进程数，或使用更小裁剪/分辨率
-- CSV 路径：确保为有效可读路径；必要时使用绝对路径
-
-## 许可证与引用
 本项目仅用于学术研究与教学目的。若在论文或项目中使用，请引用本仓库并致谢作者。
-
-—— Happy Segmenting 🔥

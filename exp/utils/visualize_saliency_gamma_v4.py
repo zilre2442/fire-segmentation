@@ -23,7 +23,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from dataset import LandsatFireDataset
-from models.RGS_Net_V4 import RGSNetV4
+from models.DualSight_Fire import RGSNetV4
 
 
 def parse_args():

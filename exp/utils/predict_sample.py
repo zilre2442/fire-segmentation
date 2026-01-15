@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.insert(0, ROOT_DIR)
 
-from models.RGS_Net_V4 import RGSNetV4
+from models.DualSight_Fire import RGSNetV4
 
 # Paths
 MODEL_PATH = os.path.join(ROOT_DIR, "output/RGS_Net_V4/voting_202512162143/weights/model_best.pth")

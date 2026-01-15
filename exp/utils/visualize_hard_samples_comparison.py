@@ -5,7 +5,7 @@
 1. 使用 Baseline UNet 模型扫描测试集，寻找误报 (FP) 最多的 5 个样本。
 2. 使用 Baseline UNet 模型扫描测试集，寻找漏报 (FN) 最多的 5 个样本。
 3. 对这 10 个样本，分别使用 6 个模型进行推理，并生成对比图。
-   对比图包含：原图 (RGB), GT, UNet, Attention UNet, UNet++, FPS-U2Net, FDE-UNet, RGS-Net V4
+    对比图包含：原图 (RGB), GT, UNet, Attention UNet, UNet++, FPS-U2Net, FDE-UNet, Dual-Sight Fire
 
 示例用法:
 CUDA_VISIBLE_DEVICES=4 python exp/utils/visualize_hard_samples_comparison.py \
@@ -54,7 +54,7 @@ from models.attention_unet import AttentionUNet
 from models.unet_plusplus import UNetPlusPlus
 from models.FPS_U2Net import FPSU2Net
 from models.FDE_Net import FDE_UNet
-from models.RGS_Net_V4 import RGSNetV4
+from models.DualSight_Fire import RGSNetV4
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Visualize hard samples comparison across 6 models")
@@ -72,7 +72,7 @@ def parse_args():
     parser.add_argument("--ckpt-unetpp", type=str, required=True, help="UNet++ 权重路径")
     parser.add_argument("--ckpt-fps", type=str, required=True, help="FPS-U2Net 权重路径")
     parser.add_argument("--ckpt-fde", type=str, required=True, help="FDE-UNet 权重路径")
-    parser.add_argument("--ckpt-v4", type=str, required=True, help="RGS-Net V4 权重路径")
+    parser.add_argument("--ckpt-v4", type=str, required=True, help="Dual-Sight Fire 权重路径")
     
     return parser.parse_args()
 

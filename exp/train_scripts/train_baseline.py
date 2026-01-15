@@ -1,7 +1,6 @@
-"""训练脚本: Baseline UNet (对齐 RGS-Net V4 工作流)
+"""训练脚本: Baseline UNet (对齐 Dual-Sight Fire 工作流)
 
 - 支持单机/分布式训练 (`--dist` 或 torchrun 环境变量自动检测)
-- CLI 参数与日志记录方式与 `train_RGS_Net_V4.py` 保持一致，便于同一套调度脚本调用
 - 记录 `train_log.txt`、`hyperparameters.txt` 以及 `loss_curves.png`
 
 示例：
@@ -42,7 +41,7 @@ from loss import FocalLoss, SpatialFocalLoss
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Train Baseline UNet (aligned with RGS-Net V4 script)")
+    p = argparse.ArgumentParser(description="Train Baseline UNet (aligned with Dual-Sight Fire script)")
     p.add_argument("--data-root", type=str, default="data/splits_activefire")
     p.add_argument("--algo", type=str, default="voting")
     p.add_argument("--bands", type=int, nargs=3, default=(7, 6, 2))

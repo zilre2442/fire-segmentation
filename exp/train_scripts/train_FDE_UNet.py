@@ -1,7 +1,6 @@
 """
 训练脚本: FDE-UNet (基于 HaarWavelet + ACmix + CBAM)
 
-- 与 baseline/RGS V4 脚本共享 CLI 结构，便于统一调度
 - 默认使用 BCEWithLogitsLoss；模型返回 logits
 - 记录 train_log.txt / hyperparameters.txt / loss_curves.png 与权重
 - 训练参数与论文保持一致: Epochs=100, BatchSize=16, Optimizer=Adam, LR=1e-3, EarlyStopping=5

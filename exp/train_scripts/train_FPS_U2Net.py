@@ -1,6 +1,5 @@
 """训练脚本: FPS-U2Net (多尺度侧输出)
 
-- 承袭 RGS V4/Baseline 训练脚本结构 (torchrun/单卡皆可)
 - 模型返回 6 个 logits + 6 个 sigmoid；训练阶段仅对 logits 使用 BCE+IoU Loss 并加权求和
 - 默认损失权重: [1.0, 0.8, 0.6, 0.4, 0.2, 0.1] (从大到小侧输出)
 - 训练参数与论文保持一致: Epochs=80, BatchSize=16, Optimizer=Adam, LR=1e-3, Scheduler=Poly

@@ -20,7 +20,7 @@ if PROJECT_ROOT not in sys.path:
 from dataset import LandsatFireDataset
 from models.baseline import UNet
 
-# CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 --master_port=65530 exp/eval_scripts/eval_baseline.py
+# CUDA_VISIBLE_DEVICES=4,5 torchrun --nproc_per_node=2 --master_port=65530 exp/eval_scripts/eval_baseline.py
 # CUDA_VISIBLE_DEVICES=6 python exp/eval_scripts/eval_baseline.py
 
 # ---- 预初始化阶段的主进程判定（在 DDP 尚未 init 时使用） ----
@@ -33,11 +33,11 @@ if _is_preinit_main():
     print(f"当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"计算设备: {'GPU可用' if torch.cuda.is_available() else '仅限CPU'}")
 
-# DATA_ROOT = "data/splits_activefire"
-# ALGORITHM = "voting"  # 可选: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
-DATA_ROOT = "data/splits_merged_pixels"
-ALGORITHM = "large"
-SAVE_DIR = "output/baseline/large_202512260930"  # 指向已训练模型的目录
+DATA_ROOT = "data/splits_activefire"
+ALGORITHM = "voting"  # 可选: 'Kumar-Roy', 'Murphy', 'Schroeder', 'intersection', 'voting'
+# DATA_ROOT = "data/splits_merged_pixels"
+# ALGORITHM = "large"
+SAVE_DIR = "output/baseline/voting_202512051446"  # 指向已训练模型的目录
 TH_FIRE = 0.5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BANDS = (7, 6, 2)
