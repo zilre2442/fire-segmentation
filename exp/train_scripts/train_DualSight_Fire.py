@@ -3,8 +3,8 @@
 主损失: fused_logits 使用 SpatialFocalTverskyLoss 对火点分割监督。
 辅助损失: seg_logits(同上) + rec_logits(背景监督, BCELoss 对 rec_logits vs 1 - fire_mask)。
 
-CUDA_VISIBLE_DEVICES=4,5,6 torchrun --nproc_per_node=3 --master_port=65531 exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
-CUDA_VISIBLE_DEVICES=5 python exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
+CUDA_VISIBLE_DEVICES=6,7 torchrun --nproc_per_node=2 --master_port=65531 exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
+CUDA_VISIBLE_DEVICES=7 python exp/train_scripts/train_DualSight_Fire.py --data-root data/splits_activefire --algo voting
 """
 
 from __future__ import annotations
@@ -147,8 +147,8 @@ def main():
         alpha_bg = 0.5,
     )
     # seg_loss_fn = FocalLoss(
-    #     alpha=0.6,
-    #     gamma=1.0,
+    #     alpha=0.65,
+    #     gamma=2.0,
     #     reduction="mean",
     # )
     # seg_loss_fn = SpatialFocalBCELoss(
