@@ -23,8 +23,6 @@ class LandsatFireDataset(Dataset):
             reader = csv.reader(f)
             next(reader)  # 跳过表头
             for row in reader:
-                row[0] = '/mnt/data0/heguozhen/' + row[0]
-                row[1] = '/mnt/data0/heguozhen/' + row[1]
                 self.pairs.append((row[0], row[1]))
         
         # 验证文件存在性
