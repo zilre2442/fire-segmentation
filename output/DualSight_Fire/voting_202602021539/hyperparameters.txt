@@ -1,0 +1,31 @@
+===== Dual-Sight Fire Hyperparameters =====
+time: 2026-02-02 15:39:21
+algo: voting
+data_root: data/splits_activefire
+bands: (7, 6, 5)
+epochs: 60
+batch_size: 16
+lr: 0.001
+base_filters: 64
+stage1: 20 stage2: 40
+loss_weights: fused(0.6) seg(0.2) rec(0.2) [fixed]
+dist_enabled: False world_size: 1
+
+Model Info:
+total_params: 66977923
+trainable_params: 66977923
+rec_weight: 1.0000
+
+[Losses]
+[Segmentation Loss]
+  name_flag: FocalLoss
+Criterion: FocalLoss
+    gamma: 2.0
+    alpha: 0.65
+    reduction: mean
+[Reconstruction Loss]
+  name: BCEWithLogitsLoss
+  reduction: mean
+  target: 1 - mask (background)
+  pred: rec_logits (BCEWithLogitsLoss)
+=======================================
