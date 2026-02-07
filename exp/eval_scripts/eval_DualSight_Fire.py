@@ -8,8 +8,8 @@
 - 保存样例：pred_samples (BANS/GT/Seg/Rec/Fused) 与整体可视化；可选附加按火点数量类别输出（启用 `--extra-output`）
 
 示例：
-CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 --master_port=65530 exp/eval_scripts/eval_DualSight_Fire.py --dist --data-root data/splits_activefire --algo voting --threshold 0.5 --save-dir output/DualSight_Fire/voting_202601131330 --output-type fused
-CUDA_VISIBLE_DEVICES=4 python exp/eval_scripts/eval_DualSight_Fire.py --data-root data/splits_activefire --algo voting --threshold 0.5 --save-dir output/DualSight_Fire/voting_202601131330
+CUDA_VISIBLE_DEVICES=6,7 torchrun --nproc_per_node=2 --master_port=65530 exp/eval_scripts/eval_DualSight_Fire.py --dist --data-root data/splits_activefire --algo voting --threshold 0.5 --save-dir output/DualSight_Fire/voting_202602032156 --output-type fused
+CUDA_VISIBLE_DEVICES=7 python exp/eval_scripts/eval_DualSight_Fire.py --data-root data/splits_activefire --algo voting --threshold 0.5 --save-dir output/DualSight_Fire/voting_202512061415 --output-type seg
 """
 
 from __future__ import annotations
