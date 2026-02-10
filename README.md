@@ -157,14 +157,10 @@ Other evaluation scripts are under `exp/eval_scripts/`:
 ## 6. Output Contents
 
 Training output directories typically include:
-- `weights/model_best.pth`：验证集最优权重
-- `train_log.txt`：训练/验证 loss 记录
-- `hyperparameters.txt`：超参数与模型统计
-- `loss_curve.png`（如脚本生成）：loss 曲线
-
-Evaluation output directories typically include:
-- `eval_*.txt`：Precision/Recall/F1/IoU/mIoU 等指标
-- 可视化样例图（不同脚本生成的内容略有差异）
+- `weights/model_best.pth`
+- `train_log.txt`
+- `hyperparameters.txt`
+- `loss_curve.png`
 
 ## 7. License and Citation
 
