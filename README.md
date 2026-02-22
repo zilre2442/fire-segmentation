@@ -1,6 +1,6 @@
 # DualSight-Fire
 
-A Dual-Decoder network for small fire segmentation in remote sensing imagery.
+DualSight-Fire: A Cognitive Dual-Decoder Network for Robust Fire Segmentation in Multispectral Remote Sensing Image
 
 This repository contains multiple fire segmentation models (Baseline / AttentionUNet / UNet++ / FDE-UNet / FPS-U2Net / Dual-Sight Fire and the StageFusion variant), along with training/evaluation scripts and dataset splitting utilities.
 
